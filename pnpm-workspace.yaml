@@ -1,0 +1,10 @@
+catalogMode: manual
+engineStrict: true
+saveExact: true
+
+minimumReleaseAge: 2880
+
+allowBuilds:
+  esbuild: false
+  lefthook: true
+  msw: false

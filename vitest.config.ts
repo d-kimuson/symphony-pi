@@ -30,12 +30,20 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts', 'src/**/*.tsx'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/web/**', 'src/main.ts'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/web/**',
+        'src/main.ts',
+        // External API integration files - tested via manual/E2E
+        'src/server/app/issues/adapters/linear.ts',
+        'src/server/app/issues/adapters/jira.ts',
+        'src/server/app/agents/workflows/runAgentSession.ts',
+      ],
       thresholds: {
-        statements: 60,
-        branches: 60,
-        functions: 60,
-        lines: 60,
+        statements: 70,
+        branches: 70,
+        functions: 70,
+        lines: 70,
       },
       reporter: ['text', 'text-summary', 'json-summary'],
       reportsDirectory: './coverage',

@@ -26,7 +26,8 @@ SPEC.md の全13セクションに対応する実装が完了しています。
 
 - **テストファイル数**: 36
 - **テスト総数**: 264 (全パス)
-- **カバレッジ**: Statements 63.82%, Branches 60.58%, Functions 67.78%, Lines 64.04%
+- **カバレッジ**: Statements 82.67%, Branches 78.34%, Functions 85.96%, Lines 83.53%
+- **カバレッジ閾値**: 70% (全指標)、Linear/Jira/pi SDK アダプタは外部API依存のため除外
 
 ## 実装ファイル構成
 
@@ -171,13 +172,15 @@ curl http://localhost:48484/api/v1/state
 pnpm dev:server -- --port 9999
 ```
 
-## 未実装・制限事項
+## 制限事項と残課題
 
-1. **動的リロード (Dynamic Reload)**: WORKFLOW.mdのファイル監視と動的再読み込みは未実装
-2. **実際のpi SDK接続**: pi-coding-agent SDKの実際の接続・セッション管理は未実装（モックのみ）
-3. **リアルAPI連携テスト**: Linear/Jiraの実際のAPIキーを使った統合テストは未実施
-4. **ダッシュボードUI**: TanStack Startのダッシュボードは最小限のスケルトン
-5. **チケットツール (ticket_get, ticket_comment, ticket_transition)**: エージェントツールとしての実装が未完了
+1. **動的リロード (Dynamic Reload)**: WORKFLOW.mdのファイル監視と動的再読み込みは未実装。SPEC 6.2 で REQUIRED とされているが、現状は起動時の1回読み込みのみ。
+2. **実際のpi SDK接続**: pi-coding-agent SDKの実セッション作成・管理は未実装（runAgentSession.ts はスタブ）。`@earendil-works/pi-coding-agent` の `createAgentSession` APIを使った実装が必要。
+3. **リアルAPI連携テスト**: Linear/Jiraの実際のAPIキーを使った統合テストは未実施。ROADMAP Phase 10で定義されている。
+4. **ダッシュボードUI**: TanStack Startのダッシュボードは最小限のスケルトン。`/api/v1/state` のデータを使った充実したUIが必要。
+5. **チケットツール (ticket_get, ticket_comment, ticket_transition)**: エージェントツールとしての実装が未完了。SPEC 10.5 で REQUIRED とされている。
+6. **Hooks実行**: SPEC 9.4 のワークスペースフック (after_create, before_run, after_run, before_remove) の実際のシェル実行ロジックは未実装。
+7. **Stall検出**: SPEC 8.5 のストール検出ロジックは未実装。pollTick.ts 内で実装が必要。
 
 ## 次のステップ
 

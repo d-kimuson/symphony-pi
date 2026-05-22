@@ -23,7 +23,7 @@ export type SessionRow = {
 type SortKey = keyof SessionRow;
 type SortDir = 'asc' | 'desc';
 
-function formatRelativeTime(iso: string): string {
+const formatRelativeTime = (iso: string): string => {
   const then = new Date(iso).getTime();
   const now = Date.now();
   const diffSec = Math.floor((now - then) / 1000);
@@ -31,9 +31,9 @@ function formatRelativeTime(iso: string): string {
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
   return `${Math.floor(diffSec / 86400)}d ago`;
-}
+};
 
-function formatDate(iso: string): string {
+const formatDate = (iso: string): string => {
   const d = new Date(iso);
   return d.toLocaleString('ja-JP', {
     month: 'short',
@@ -42,9 +42,9 @@ function formatDate(iso: string): string {
     minute: '2-digit',
     second: '2-digit',
   });
-}
+};
 
-function SortHeader({
+const SortHeader = ({
   label,
   sortKey,
   currentKey,
@@ -56,7 +56,7 @@ function SortHeader({
   currentKey: SortKey | null;
   currentDir: SortDir;
   onSort: (key: SortKey) => void;
-}) {
+}) => {
   const isActive = currentKey === sortKey;
   return (
     <TableHead className="cursor-pointer select-none" onClick={() => onSort(sortKey)}>
@@ -76,20 +76,20 @@ function SortHeader({
       </div>
     </TableHead>
   );
-}
+};
 
-export function SessionsTable({ sessions }: { sessions: readonly SessionRow[] }) {
+export const SessionsTable = ({ sessions }: { sessions: readonly SessionRow[] }) => {
   const [sortKey, setSortKey] = useState<SortKey>('started_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  function handleSort(key: SortKey) {
+  const handleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
       setSortDir('asc');
     }
-  }
+  };
 
   const sorted = useMemo(() => {
     const rows = [...sessions];
@@ -177,9 +177,9 @@ export function SessionsTable({ sessions }: { sessions: readonly SessionRow[] })
       </Table>
     </div>
   );
-}
+};
 
-function TooltipDate({ iso }: { iso: string }) {
+const TooltipDate = ({ iso }: { iso: string }) => {
   return (
     <span className="group relative cursor-help">
       <span className="font-mono text-xs text-muted-foreground">{formatRelativeTime(iso)}</span>
@@ -194,4 +194,4 @@ function TooltipDate({ iso }: { iso: string }) {
       </span>
     </span>
   );
-}
+};

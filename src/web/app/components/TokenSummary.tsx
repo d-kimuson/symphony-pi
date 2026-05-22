@@ -1,11 +1,6 @@
 import { Cpu } from 'lucide-react';
 
-import {
-  Progress,
-  ProgressTrack,
-  ProgressIndicator,
-  ProgressValue,
-} from '@/web/components/ui/progress';
+import { Progress, ProgressTrack, ProgressIndicator } from '@/web/components/ui/progress';
 
 export type TokenTotals = {
   readonly input_tokens: number;
@@ -13,13 +8,13 @@ export type TokenTotals = {
   readonly total_tokens: number;
 };
 
-function formatNumber(n: number): string {
+const formatNumber = (n: number): string => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
-}
+};
 
-export function TokenSummary({ totals }: { totals: TokenTotals }) {
+export const TokenSummary = ({ totals }: { totals: TokenTotals }) => {
   const max = Math.max(totals.total_tokens, 1);
   const inputPct = Math.round((totals.input_tokens / max) * 100);
   const outputPct = Math.round((totals.output_tokens / max) * 100);
@@ -44,7 +39,9 @@ export function TokenSummary({ totals }: { totals: TokenTotals }) {
               <ProgressTrack>
                 <ProgressIndicator className="bg-emerald-500" />
               </ProgressTrack>
-              <ProgressValue>{inputPct}%</ProgressValue>
+              <span className="ml-auto text-sm text-muted-foreground tabular-nums">
+                {inputPct}%
+              </span>
             </Progress>
           </div>
 
@@ -59,7 +56,9 @@ export function TokenSummary({ totals }: { totals: TokenTotals }) {
               <ProgressTrack>
                 <ProgressIndicator className="bg-cyan-500" />
               </ProgressTrack>
-              <ProgressValue>{outputPct}%</ProgressValue>
+              <span className="ml-auto text-sm text-muted-foreground tabular-nums">
+                {outputPct}%
+              </span>
             </Progress>
           </div>
 
@@ -75,4 +74,4 @@ export function TokenSummary({ totals }: { totals: TokenTotals }) {
       )}
     </div>
   );
-}
+};

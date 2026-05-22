@@ -30,7 +30,7 @@ const statusConfig: Record<Status, { label: string; dotClass: string; pulse?: bo
   },
 };
 
-export function StatusBadge({ status, className }: { status: Status; className?: string }) {
+export const StatusBadge = ({ status, className }: { status: Status; className?: string }) => {
   const config = statusConfig[status];
 
   return (
@@ -55,4 +55,4 @@ export function StatusBadge({ status, className }: { status: Status; className?:
       {config.label}
     </div>
   );
-}
+};

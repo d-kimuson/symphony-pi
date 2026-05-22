@@ -19,7 +19,7 @@ export type RetryRow = {
   readonly error: string | null;
 };
 
-function useCountdown(targetMs: number) {
+const useCountdown = (targetMs: number) => {
   const [remaining, setRemaining] = useState(() => Math.max(0, targetMs - Date.now()));
 
   useEffect(() => {
@@ -30,9 +30,9 @@ function useCountdown(targetMs: number) {
   }, [targetMs]);
 
   return remaining;
-}
+};
 
-function formatDuration(ms: number): string {
+const formatDuration = (ms: number): string => {
   if (ms <= 0) return 'Due now';
   const sec = Math.floor(ms / 1000);
   if (sec < 60) return `${sec}s`;
@@ -40,9 +40,9 @@ function formatDuration(ms: number): string {
   if (min < 60) return `${min}m ${sec % 60}s`;
   const hr = Math.floor(min / 60);
   return `${hr}h ${min % 60}m`;
-}
+};
 
-export function RetryQueue({ retries }: { retries: readonly RetryRow[] }) {
+export const RetryQueue = ({ retries }: { retries: readonly RetryRow[] }) => {
   if (retries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
@@ -72,9 +72,9 @@ export function RetryQueue({ retries }: { retries: readonly RetryRow[] }) {
       </Table>
     </div>
   );
-}
+};
 
-function RetryRowItem({ row }: { row: RetryRow }) {
+const RetryRowItem = ({ row }: { row: RetryRow }) => {
   const remaining = useCountdown(row.due_at_ms);
 
   return (
@@ -97,7 +97,7 @@ function RetryRowItem({ row }: { row: RetryRow }) {
         </div>
       </TableCell>
       <TableCell>
-        {row.error != null ? (
+        {row.error !== null ? (
           <div className="flex items-center gap-1.5 text-xs text-destructive">
             <AlertTriangle className="size-3 shrink-0" />
             <span className="max-w-[240px] truncate">{row.error}</span>
@@ -108,4 +108,4 @@ function RetryRowItem({ row }: { row: RetryRow }) {
       </TableCell>
     </TableRow>
   );
-}
+};

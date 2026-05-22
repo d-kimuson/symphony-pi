@@ -242,6 +242,13 @@ export default defineConfig({
       },
     },
     {
+      files: ['src/web/components/ui/**/*.tsx'],
+      rules: {
+        // shadcn/ui コンポーネントは自動生成されたコードなので func-style を緩和
+        'func-style': 'off',
+      },
+    },
+    {
       files: ['**/*.{test,spec}.?([mc])[jt]s?(x)'],
       rules: {
         'jest/no-conditional-expect': 'error', // 条件分岐内での expect を禁止

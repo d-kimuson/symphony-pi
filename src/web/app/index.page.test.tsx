@@ -64,7 +64,6 @@ describe('Dashboard', () => {
   let fetchSpy: { mockRestore: () => void; mockResolvedValue: (v: Response) => void };
 
   beforeEach(() => {
-    // oxlint-disable-next-line typescript/no-unsafe-call
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(createMockResponse(mockState));
   });
 
@@ -168,7 +167,6 @@ describe('Dashboard', () => {
   });
 
   it('shows empty states when no data', async () => {
-    // oxlint-disable-next-line typescript/no-unsafe-call
     fetchSpy.mockResolvedValue(
       createMockResponse({
         generated_at: new Date().toISOString(),

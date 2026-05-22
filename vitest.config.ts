@@ -1,16 +1,25 @@
+import path from 'node:path';
+
+import viteReact from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  plugins: [viteReact()],
   resolve: {
     tsconfigPaths: true,
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
   },
   test: {
     projects: [
       {
         name: 'web',
+        plugins: [viteReact()],
         test: {
           include: ['src/web/**/*.test.{ts,tsx}'],
+          exclude: [],
           browser: {
             enabled: true,
             provider: playwright(),
@@ -38,6 +47,10 @@ export default defineConfig({
         'src/server/app/issues/adapters/linear.ts',
         'src/server/app/issues/adapters/jira.ts',
         'src/server/app/agents/workflows/runAgentSession.ts',
+        // Network/API-dependent tools tested via integration
+        'src/server/app/agents/services/ticketTools.ts',
+        // Filesystem watcher tested via integration
+        'src/server/app/config/workflows/dynamicReload.ts',
       ],
       thresholds: {
         statements: 70,

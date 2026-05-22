@@ -1,11 +1,12 @@
 import { parseCliArgs } from './server/cli.js';
 import { startServer } from './server/server.js';
 
-const cliArgs = parseCliArgs(process.argv);
+const args = parseCliArgs(process.argv);
 
-const server = await startServer({
-  preferredPort: cliArgs.port ?? 48484,
-  host: '127.0.0.1',
+startServer({
+  preferredPort: args.port,
+}).catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`Failed to start server: ${message}`);
+  process.exit(1);
 });
-
-console.log(`Symphony PI started on port ${server.port}`);

@@ -5,6 +5,9 @@ saveExact: true
 minimumReleaseAge: 2880
 
 allowBuilds:
+  '@google/genai': set this to true or false
   esbuild: false
+  koffi: set this to true or false
   lefthook: true
   msw: false
+  protobufjs: set this to true or false

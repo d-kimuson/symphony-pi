@@ -27,5 +27,24 @@ export default defineConfig({
         },
       },
     ],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/web/routeTree.gen.ts',
+        'src/web/vite-env.d.ts',
+        'src/web/app-env.d.ts',
+        'src/main.ts',
+      ],
+      thresholds: {
+        statements: 70,
+        branches: 70,
+        functions: 70,
+        lines: 70,
+      },
+      reporter: ['text', 'text-summary', 'json-summary'],
+      reportsDirectory: './coverage',
+    },
   },
 });

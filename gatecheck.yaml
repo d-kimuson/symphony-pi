@@ -18,3 +18,7 @@ checks:
     match: \.(m|c)?(j|t)sx?$
     group: test
     command: pnpm exec vitest related --run --passWithNoTests {{ ctx.CHANGED_FILES }}
+  - name: vitest-coverage
+    match: \.(m|c)?(j|t)sx?$
+    group: test
+    command: pnpm exec vitest run --coverage

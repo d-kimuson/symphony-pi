@@ -1,0 +1,3 @@
+{
+  "staticChecks": ["pnpm gatecheck check"]
+}

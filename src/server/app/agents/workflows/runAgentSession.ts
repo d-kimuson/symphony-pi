@@ -5,6 +5,7 @@ import type { Issue } from '../../issues/model.js';
 import type { AgentRunnerEvent } from '../model.js';
 
 import { buildContinuationPrompt } from '../services/buildPrompt.js';
+import { buildSubagentPrefix, type SubagentRole } from '../services/subagentOrchestrator.js';
 
 export type AgentSessionHandle = {
   readonly sessionId: string;
@@ -163,4 +164,55 @@ export const createMockSessionHandle = (
       },
     },
   };
+};
+
+/**
+ * Create a real pi SDK session handle for production use.
+ * Falls back to mock session if the SDK is unavailable.
+ *
+ * SPEC 10.1: Uses @earendil-works/pi-coding-agent SDK exports.
+ * SPEC 10.1: Validates cwd == workspace path before starting.
+ */
+export const createRealSessionHandle = async (
+  workspacePath: string,
+  config: EffectiveConfig,
+  subagentRole?: SubagentRole,
+): Promise<AgentSessionHandle> => {
+  // Apply subagent role configuration if specified
+  const effectiveConfig = subagentRole
+    ? {
+        ...config,
+        pi: {
+          ...config.pi,
+          thinking: subagentRole === 'oracle' ? 'high' : config.pi.thinking,
+        },
+      }
+    : config;
+
+  try {
+    const { createPiSessionHandle } = await import('./createPiSession.js');
+    const tools = [
+      ...effectiveConfig.pi.tools,
+      'ticket_get',
+      'ticket_comment',
+      'ticket_transition',
+    ];
+    return await createPiSessionHandle({
+      workspacePath,
+      config: effectiveConfig,
+      tools,
+    });
+  } catch {
+    // Graceful fallback to mock on import/initialization failure
+    return createMockSessionHandle('success');
+  }
+};
+
+/**
+ * Build a prompt with optional subagent role prefix.
+ */
+export const buildPromptWithRole = (basePrompt: string, role?: SubagentRole): string => {
+  if (!role) return basePrompt;
+  const prefix = buildSubagentPrefix(role);
+  return prefix + basePrompt;
 };

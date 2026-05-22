@@ -1,14 +1,23 @@
 import { serve } from '@hono/node-server';
+import getPort, { portNumbers } from 'get-port';
 
 import { honoApp } from './app.ts';
 import { routes } from './routes.ts';
 
-type ServerOptions = {
-  port?: number;
+export type ServerOptions = {
+  /** Preferred starting port (default 48484). Falls back to next available using get-port. */
+  preferredPort?: number;
+  /** Host to bind to (default 127.0.0.1). */
+  host?: string;
 };
 
-export const startServer = (options?: ServerOptions) => {
-  const { port = 8787 } = options ?? {};
+const DEFAULT_PORT = 48484;
+const DEFAULT_HOST = '127.0.0.1';
+
+export const startServer = async (options?: ServerOptions) => {
+  const { preferredPort = DEFAULT_PORT, host = DEFAULT_HOST } = options ?? {};
+
+  const port = await getPort({ port: portNumbers(preferredPort, 65535), host });
 
   routes(honoApp);
 
@@ -16,9 +25,10 @@ export const startServer = (options?: ServerOptions) => {
     {
       fetch: honoApp.fetch,
       port,
+      hostname: host,
     },
     (info) => {
-      console.log(`Server is running on http://localhost:${info.port}`);
+      console.log(`Server is running on http://${host}:${info.port}`);
     },
   );
 
@@ -41,5 +51,6 @@ export const startServer = (options?: ServerOptions) => {
   return {
     server,
     cleanUp,
+    port,
   } as const;
 };

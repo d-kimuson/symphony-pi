@@ -32,7 +32,7 @@
     "jsx": "preserve",
 
     // Backend
-    "types": ["node"]
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src"]
 }

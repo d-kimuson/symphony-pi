@@ -1,10 +1,12 @@
 import viteReact from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
-import TsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  plugins: [viteReact(), TsconfigPaths()],
+  plugins: [viteReact()],
+  resolve: {
+    tsconfigPaths: true,
+  },
   test: {
     projects: [
       {
@@ -36,13 +38,10 @@ export default defineConfig({
         'src/**/*.test.{ts,tsx}',
         'src/web/**',
         'src/main.ts',
-        // External API integration files - tested via manual/E2E
         'src/server/app/issues/adapters/linear.ts',
         'src/server/app/issues/adapters/jira.ts',
         'src/server/app/agents/workflows/runAgentSession.ts',
-        // Network/API-dependent tools tested via integration
         'src/server/app/agents/services/ticketTools.ts',
-        // Filesystem watcher tested via integration
         'src/server/app/config/workflows/dynamicReload.ts',
       ],
       thresholds: {

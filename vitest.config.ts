@@ -1,17 +1,10 @@
-import path from 'node:path';
-
 import viteReact from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
+import TsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  plugins: [viteReact()],
-  resolve: {
-    tsconfigPaths: true,
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
-    },
-  },
+  plugins: [viteReact(), TsconfigPaths()],
   test: {
     projects: [
       {

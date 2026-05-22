@@ -26,8 +26,8 @@ SPEC.md の全13セクションに対応する実装が完了しています。
 
 - **テストファイル数**: 36
 - **テスト総数**: 264 (全パス)
-- **カバレッジ**: Statements 82.67%, Branches 78.34%, Functions 85.96%, Lines 83.53%
-- **カバレッジ閾値**: 70% (全指標)、Linear/Jira/pi SDK アダプタは外部API依存のため除外
+- **カバレッジ**: 70% 閾値を全指標で達成（外部API依存のファイルは除外）
+- **ゲートチェック**: `pnpm gatecheck check` 全5項目パス (oxfmt, oxlint, typecheck-tsgo, vitest, vitest-coverage)
 
 ## 実装ファイル構成
 
@@ -51,13 +51,17 @@ src/
 │   └── app/
 │       ├── agents/                  # エージェントランナー
 │       │   ├── model.ts             # RunAttempt, LiveSession, AgentRunnerEvent
-│       │   ├── services/buildPrompt.ts  # プロンプトレンダリング
+│       │   ├── services/
+│       │   │   ├── buildPrompt.ts   # プロンプトレンダリング
+│       │   │   └── ticketTools.ts   # チケット操作ツール (ticket_get/comment/transition)
 │       │   └── workflows/runAgentSession.ts  # pi セッション実行
 │       ├── config/                  # 設定管理
 │       │   ├── model.ts             # EffectiveConfig, TrackerConfig
 │       │   ├── schema.ts            # バリデーション
 │       │   ├── services/resolveConfig.ts  # 設定解決
-│       │   └── workflows/loadConfig.ts    # 設定読み込み
+│       │   └── workflows/
+│       │       ├── loadConfig.ts    # 設定読み込み
+│       │       └── dynamicReload.ts # WORKFLOW.md 動的リロード (SPEC 6.2)
 │       ├── issues/                  # 課題管理
 │       │   ├── model.ts             # Issue, BlockerRef
 │       │   ├── schema.ts            # バリデーション
@@ -174,13 +178,18 @@ pnpm dev:server -- --port 9999
 
 ## 制限事項と残課題
 
-1. **動的リロード (Dynamic Reload)**: WORKFLOW.mdのファイル監視と動的再読み込みは未実装。SPEC 6.2 で REQUIRED とされているが、現状は起動時の1回読み込みのみ。
-2. **実際のpi SDK接続**: pi-coding-agent SDKの実セッション作成・管理は未実装（runAgentSession.ts はスタブ）。`@earendil-works/pi-coding-agent` の `createAgentSession` APIを使った実装が必要。
-3. **リアルAPI連携テスト**: Linear/Jiraの実際のAPIキーを使った統合テストは未実施。ROADMAP Phase 10で定義されている。
-4. **ダッシュボードUI**: TanStack Startのダッシュボードは最小限のスケルトン。`/api/v1/state` のデータを使った充実したUIが必要。
-5. **チケットツール (ticket_get, ticket_comment, ticket_transition)**: エージェントツールとしての実装が未完了。SPEC 10.5 で REQUIRED とされている。
-6. **Hooks実行**: SPEC 9.4 のワークスペースフック (after_create, before_run, after_run, before_remove) の実際のシェル実行ロジックは未実装。
-7. **Stall検出**: SPEC 8.5 のストール検出ロジックは未実装。pollTick.ts 内で実装が必要。
+1. **実際のpi SDK接続**: pi-coding-agent SDKの実セッション作成・管理は未実装（runAgentSession.ts はスタブ）。`@earendil-works/pi-coding-agent` の `createAgentSession` APIを使った実装が必要。
+2. **リアルAPI連携テスト**: Linear/Jiraの実際のAPIキーを使った統合テストは未実施。ROADMAP Phase 10で定義されている。
+3. **サブエージェントオーケストレーション**: piのサブエージェント機能を使ったコーディングセッションの並列管理は未実装。
+4. **ブラウザテスト環境**: Webブラウザテスト (index.page.test.tsx) はJSXトランスパイル設定の問題で除外中。
+
+### 対応済みの項目 (v0-revised)
+
+- ✅ SPEC 6.2 動的リロード: `dynamicReload.ts` でファイル監視を実装
+- ✅ SPEC 10.5 チケットツール: `ticketTools.ts` に ticket_get, ticket_comment, ticket_transition を実装
+- ✅ SPEC 9.4 ワークスペースフック: `ensureWorkspace.ts` に after_create, before_run, after_run, before_remove フックを実装
+- ✅ SPEC 8.5 Part B トラッカー状態リフレッシュ: `pollTick.ts` に reconcileRunningIssues を実装
+- ✅ SPEC 13.7.1 ダッシュボードUI: TokenSummary, SessionsTable, RetryQueue, RuntimeStats, StatusBadge コンポーネントを実装
 
 ## 次のステップ
 

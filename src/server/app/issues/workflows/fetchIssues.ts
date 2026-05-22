@@ -22,3 +22,18 @@ export const fetchIssues = async (_config: EffectiveConfig): Promise<readonly Is
     return null;
   }
 };
+
+/**
+ * Fetch current issue states by IDs for active-run reconciliation (SPEC 8.5 Part B).
+ */
+export const fetchIssueStatesByIds = async (
+  _config: EffectiveConfig,
+  issueIds: readonly string[],
+): Promise<readonly Issue[] | null> => {
+  if (trackerAdapter === null) return [];
+  try {
+    return await trackerAdapter.fetchIssueStatesByIds(issueIds);
+  } catch {
+    return null;
+  }
+};

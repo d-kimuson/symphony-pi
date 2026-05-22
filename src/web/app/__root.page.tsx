@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router';
 
-// TODO: Create QueryClientProviderWrapper, then import and wrap the shell body.
-// import { QueryClientProviderWrapper } from '../lib/api/QueryClientProviderWrapper';
+import { TooltipProvider } from '@/web/components/ui/tooltip';
+
+import { QueryClientProviderWrapper } from '../lib/api/QueryClientProviderWrapper';
 import appCss from '../styles.css?url';
 
 const RootDocument = ({ children }: { children: ReactNode }) => {
@@ -13,8 +14,9 @@ const RootDocument = ({ children }: { children: ReactNode }) => {
         <HeadContent />
       </head>
       <body>
-        {/* TODO: Wrap children with QueryClientProviderWrapper after creating the provider. */}
-        {children}
+        <QueryClientProviderWrapper>
+          <TooltipProvider>{children}</TooltipProvider>
+        </QueryClientProviderWrapper>
         <Scripts />
       </body>
     </html>
@@ -30,9 +32,13 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: 'stylesheet', href: appCss },
-      // {Customize: add favicon, manifest, etc.}
+      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+      { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
+      {
+        rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap',
+      },
     ],
   }),
-  // {Customize: add notFoundComponent if needed}
   shellComponent: RootDocument,
 });

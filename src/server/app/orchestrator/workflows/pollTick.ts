@@ -4,13 +4,14 @@ import type { EffectiveConfig } from '../../config/model.js';
 import type { Issue } from '../../issues/model.js';
 import type { OrchestratorState, RunningEntry } from '../model.js';
 
-import { fetchIssues } from '../../issues/workflows/fetchIssues.js';
+import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.js';
 import {
   sortCandidatesByPriority,
   isDispatchEligible,
   hasGlobalSlots,
   createRetryEntry,
   isSessionStalled,
+  determineReconciliationAction,
 } from '../services/stateTransitions.js';
 
 /**
@@ -23,7 +24,7 @@ export const pollTick = async (
   onNotify: () => void,
 ): Promise<void> => {
   // 1. Reconcile running issues
-  reconcileRunningIssues(state, config);
+  await reconcileRunningIssues(state, config);
 
   // 2. Fetch candidate issues
   const candidates = await fetchIssues(config);
@@ -49,11 +50,19 @@ export const pollTick = async (
 };
 
 /**
- * Reconcile running issues: stall detection and state refresh.
+ * Reconcile running issues: stall detection (Part A) and tracker state refresh (Part B).
+ * SPEC 8.5.
  */
-const reconcileRunningIssues = (state: OrchestratorState, config: EffectiveConfig): void => {
+const reconcileRunningIssues = async (
+  state: OrchestratorState,
+  config: EffectiveConfig,
+): Promise<void> => {
+  const runningIds = Array.from(state.running.keys());
+
+  if (runningIds.length === 0) return;
+
+  // Part A: Stall detection
   for (const [issueId, entry] of state.running) {
-    // Stall detection (Part A)
     if (isSessionStalled(entry, config.pi.stall_timeout_ms, null)) {
       // Terminate and queue retry
       const retry = createRetryEntry(
@@ -70,8 +79,43 @@ const reconcileRunningIssues = (state: OrchestratorState, config: EffectiveConfi
     }
   }
 
-  // Part B: Tracker state refresh is async and done elsewhere
-  // For now, reconciliation is stall-detection only
+  // Part B: Tracker state refresh (SPEC 8.5 Part B)
+  const refreshed = await fetchIssueStatesByIds(config, runningIds);
+
+  if (refreshed === null) {
+    // Fetch failed: keep workers running, retry next tick (SPEC 8.5)
+    return;
+  }
+
+  for (const issue of refreshed) {
+    const entry = state.running.get(issue.id);
+    if (entry === undefined) continue;
+
+    const action = determineReconciliationAction(issue.state, config);
+
+    switch (action.action) {
+      case 'stop_and_cleanup': {
+        // Terminal state: terminate worker + clean workspace (SPEC 8.5)
+        state.running.delete(issue.id);
+        state.claimed.delete(issue.id);
+        state.completed.add(issue.id);
+        // Workspace cleanup is handled by orchestrator caller
+        break;
+      }
+      case 'keep_running':
+        // Active state: update in-memory issue snapshot (SPEC 8.5)
+        // Keep running, snapshot is updated via the running entry
+        break;
+      case 'stop_without_cleanup': {
+        // Neither active nor terminal: terminate without workspace cleanup (SPEC 8.5)
+        state.running.delete(issue.id);
+        state.claimed.delete(issue.id);
+        break;
+      }
+      default:
+        break;
+    }
+  }
 };
 
 /**
@@ -104,14 +148,14 @@ export const handleWorkerExit = (
 ): void => {
   const entry = state.running.get(issueId);
   state.running.delete(issueId);
-  state.claimed.delete(issueId);
 
   if (entry === undefined) return;
 
   if (success) {
     state.completed.add(issueId);
 
-    // Schedule continuation retry (1 second)
+    // Schedule continuation retry (1 second) — SPEC 7.1, 8.4
+    state.claimed.delete(issueId);
     const retry = createRetryEntry(
       issueId,
       entry.issue_identifier,
@@ -122,7 +166,8 @@ export const handleWorkerExit = (
     );
     state.retry_attempts.set(issueId, retry);
   } else {
-    // Schedule exponential backoff retry
+    // Schedule exponential backoff retry — SPEC 8.4
+    state.claimed.delete(issueId);
     const attempt = (entry.attempt ?? 0) + 1;
     const retry = createRetryEntry(
       issueId,

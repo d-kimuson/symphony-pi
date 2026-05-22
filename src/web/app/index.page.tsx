@@ -3,16 +3,9 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Activity, BarChart3, Clock, Cpu, RefreshCw, Server, Shield } from 'lucide-react';
 import { useMemo } from 'react';
 
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from '@/web/components/ui/card';
-import { Separator } from '@/web/components/ui/separator';
-import { Skeleton } from '@/web/components/ui/skeleton';
-
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { Separator } from '../components/ui/separator';
+import { Skeleton } from '../components/ui/skeleton';
 import { honoClient } from '../lib/api/client';
 import { RetryQueue } from './components/RetryQueue';
 import { RuntimeStats } from './components/RuntimeStats';

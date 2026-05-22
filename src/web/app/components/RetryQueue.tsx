@@ -1,7 +1,7 @@
 import { AlertTriangle, Clock, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { Badge } from '@/web/components/ui/badge';
+import { Badge } from '../../components/ui/badge';
 import {
   Table,
   TableBody,
@@ -9,7 +9,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/web/components/ui/table';
+} from '../../components/ui/table';
 
 export type RetryRow = {
   readonly issue_id: string;

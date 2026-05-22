@@ -1,6 +1,6 @@
 import { Cpu } from 'lucide-react';
 
-import { Progress, ProgressTrack, ProgressIndicator } from '@/web/components/ui/progress';
+import { Progress, ProgressTrack, ProgressIndicator } from '../../components/ui/progress';
 
 export type TokenTotals = {
   readonly input_tokens: number;

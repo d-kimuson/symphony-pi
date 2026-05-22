@@ -1,7 +1,7 @@
 import { ArrowUp, ArrowUpDown, ArrowDown, Activity } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import { Badge } from '@/web/components/ui/badge';
+import { Badge } from '../../components/ui/badge';
 import {
   Table,
   TableBody,
@@ -9,8 +9,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/web/components/ui/table';
-import { cn } from '@/web/lib/utils';
+} from '../../components/ui/table';
+import { cn } from '../../lib/utils';
 
 export type SessionRow = {
   readonly issue_id: string;

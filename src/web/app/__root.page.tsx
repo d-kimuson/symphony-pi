@@ -2,8 +2,7 @@ import type { ReactNode } from 'react';
 
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router';
 
-import { TooltipProvider } from '@/web/components/ui/tooltip';
-
+import { TooltipProvider } from '../components/ui/tooltip';
 import { QueryClientProviderWrapper } from '../lib/api/QueryClientProviderWrapper';
 import appCss from '../styles.css?url';
 

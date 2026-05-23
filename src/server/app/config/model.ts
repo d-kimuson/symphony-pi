@@ -6,6 +6,7 @@ export type LinearTrackerConfig = {
   readonly kind: 'linear';
   readonly api_key: string;
   readonly endpoint: string;
+  readonly team_key: string;
   readonly project_slug: string;
   readonly active_states: readonly string[];
   readonly terminal_states: readonly string[];

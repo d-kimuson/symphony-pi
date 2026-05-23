@@ -133,6 +133,7 @@ const buildTrackerConfig = (
     kind: 'linear',
     api_key: resolveApiKey('linear', tracker),
     endpoint: ensureString(tracker['endpoint']) ?? 'https://api.linear.app/graphql',
+    team_key: resolveEnvVar(ensureString(tracker['team_key']) ?? ''),
     project_slug: ensureString(tracker['project_slug']) ?? '',
     active_states: activeStates,
     terminal_states: terminalStates,

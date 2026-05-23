@@ -12,6 +12,7 @@ const testConfig: LinearTrackerConfig = {
   kind: 'linear',
   api_key: 'test-key',
   endpoint: 'https://api.linear.app/graphql',
+  team_key: 'ENG',
   project_slug: 'test',
   active_states: ['Todo', 'In Progress'],
   terminal_states: ['Done'],
@@ -42,6 +43,8 @@ const makeIssueNode = (overrides: Record<string, unknown> = {}) => ({
   description: null,
   priority: 1,
   state: { name: 'Todo' },
+  team: { id: 'team-1', key: 'ENG', name: 'Engineering' },
+  project: { id: 'project-1', slugId: 'test', name: 'test' },
   branchName: null,
   url: null,
   labels: { nodes: [] },
@@ -51,16 +54,67 @@ const makeIssueNode = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const getRequestPayload = (
+  callIndex = 0,
+): { query: string; variables: Record<string, unknown> } => {
+  const init = mockFetch.mock.calls[callIndex]?.[1];
+  const parsed: unknown = JSON.parse(String(init?.body ?? '{}'));
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('invalid request payload');
+  }
+
+  const payload = Object.fromEntries(Object.entries(parsed));
+  const query = typeof payload['query'] === 'string' ? payload['query'] : '';
+  const variablesValue = payload['variables'];
+  if (
+    variablesValue === null ||
+    typeof variablesValue !== 'object' ||
+    Array.isArray(variablesValue)
+  ) {
+    return { query, variables: {} };
+  }
+
+  return { query, variables: Object.fromEntries(Object.entries(variablesValue)) };
+};
+
 describe('fetchLinearCandidateIssues', () => {
   it('returns normalized issues', async () => {
     mockFetch.mockResolvedValueOnce(makeGraphqlResponse([makeIssueNode()], false, null));
     const result = await fetchLinearCandidateIssues(testConfig);
     expect(Array.isArray(result)).toBe(true);
-    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) {
       expect(result.length).toBe(1);
       expect(result[0]?.identifier).toBe('TEST-1');
     }
+  });
+
+  it('includes team filter, project filter, active states, and pagination variables', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeGraphqlResponse([makeIssueNode({ id: 'a', identifier: 'A-1' })], true, 'cursor-1'),
+    );
+    mockFetch.mockResolvedValueOnce(
+      makeGraphqlResponse([makeIssueNode({ id: 'b', identifier: 'B-1' })], false, null),
+    );
+
+    const result = await fetchLinearCandidateIssues(testConfig);
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    const firstRequest = getRequestPayload(0);
+    expect(firstRequest.query).toContain('team: { key: { eq: $teamKey } }');
+    expect(firstRequest.query).toContain('project: { slugId: { eq: $projectSlug } }');
+    expect(firstRequest.query).toContain('state: { name: { in: $activeStates } }');
+    expect(firstRequest.variables).toMatchObject({
+      teamKey: 'ENG',
+      projectSlug: 'test',
+      activeStates: ['Todo', 'In Progress'],
+      first: 50,
+      after: null,
+    });
+
+    const secondRequest = getRequestPayload(1);
+    expect(secondRequest.variables).toMatchObject({ after: 'cursor-1' });
   });
 
   it('normalizes label names (not IDs)', async () => {
@@ -94,18 +148,6 @@ describe('fetchLinearCandidateIssues', () => {
       expect(result[0].blocked_by[0]?.identifier).toBe('BLK-1');
       expect(result[0].blocked_by[0]?.state).toBe('Todo');
     }
-  });
-
-  it('handles pagination', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeGraphqlResponse([makeIssueNode({ id: 'a', identifier: 'A-1' })], true, 'cursor-1'),
-    );
-    mockFetch.mockResolvedValueOnce(
-      makeGraphqlResponse([makeIssueNode({ id: 'b', identifier: 'B-1' })], false, null),
-    );
-    const result = await fetchLinearCandidateIssues(testConfig);
-    expect(Array.isArray(result)).toBe(true);
-    if (Array.isArray(result)) expect(result.length).toBe(2);
   });
 
   it('returns missing_end_cursor error', async () => {
@@ -143,6 +185,27 @@ describe('fetchLinearIssuesByStates', () => {
     expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(0);
   });
+
+  it('includes team and project filters for terminal cleanup', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeGraphqlResponse([makeIssueNode({ state: { name: 'Done' } })]),
+    );
+
+    const result = await fetchLinearIssuesByStates(testConfig, ['Done']);
+
+    expect(Array.isArray(result)).toBe(true);
+    const request = getRequestPayload(0);
+    expect(request.query).toContain('team: { key: { eq: $teamKey } }');
+    expect(request.query).toContain('project: { slugId: { eq: $projectSlug } }');
+    expect(request.query).toContain('state: { name: { in: $states } }');
+    expect(request.variables).toMatchObject({
+      teamKey: 'ENG',
+      projectSlug: 'test',
+      states: ['Done'],
+      first: 50,
+      after: null,
+    });
+  });
 });
 
 describe('fetchLinearIssueStatesByIds', () => {
@@ -150,5 +213,22 @@ describe('fetchLinearIssueStatesByIds', () => {
     const result = await fetchLinearIssueStatesByIds(testConfig, []);
     expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(0);
+  });
+
+  it('drops issues outside configured team/project scope', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeGraphqlResponse([
+        makeIssueNode({ id: 'in-scope' }),
+        makeIssueNode({ id: 'out-of-scope', team: { id: 'team-2', key: 'OPS', name: 'Ops' } }),
+      ]),
+    );
+
+    const result = await fetchLinearIssueStatesByIds(testConfig, ['in-scope', 'out-of-scope']);
+
+    expect(Array.isArray(result)).toBe(true);
+    if (Array.isArray(result)) {
+      expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('in-scope');
+    }
   });
 });

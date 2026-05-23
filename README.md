@@ -49,14 +49,16 @@ Create `WORKFLOW.md` at the project root (or point to a custom path with `--work
 tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
+  team_key: $LINEAR_TEAM_KEY
   project_slug: my-project
 ---
 ```
 
-Set the required environment variable:
+Set the required environment variables:
 
 ```bash
 export LINEAR_API_KEY=your-linear-api-key
+export LINEAR_TEAM_KEY=your-linear-team-key
 ```
 
 For a repository-backed workspace, configure `hooks.after_create` to attach a git worktree from the repo that owns `WORKFLOW.md`:

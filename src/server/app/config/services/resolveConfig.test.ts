@@ -10,6 +10,7 @@ describe('resolveEffectiveConfig', () => {
       tracker: {
         kind: 'linear',
         api_key: '$LINEAR_API_KEY',
+        team_key: 'ENG',
         project_slug: 'my-project',
       },
       polling: {
@@ -24,6 +25,7 @@ describe('resolveEffectiveConfig', () => {
 
     expect(config.tracker.kind).toBe('linear');
     if (config.tracker.kind !== 'linear') throw new Error('expected linear');
+    expect(config.tracker.team_key).toBe('ENG');
     expect(config.tracker.project_slug).toBe('my-project');
     expect(config.polling.interval_ms).toBe(60000);
     expect(config.agent.max_concurrent_agents).toBe(10);
@@ -32,7 +34,7 @@ describe('resolveEffectiveConfig', () => {
   });
 
   it('resolves jira config', () => {
-    const wf: WorkflowDefinition = {
+    const workflow: WorkflowDefinition = {
       config: {
         tracker: {
           kind: 'jira',
@@ -45,7 +47,7 @@ describe('resolveEffectiveConfig', () => {
       prompt_template: '# Task',
     };
 
-    const config = resolveEffectiveConfig(wf, '/repo');
+    const config = resolveEffectiveConfig(workflow, '/repo');
     expect(config.tracker.kind).toBe('jira');
     if (config.tracker.kind !== 'jira') throw new Error('expected jira');
     expect(config.tracker.base_url).toBe('https://example.atlassian.net');
@@ -53,9 +55,9 @@ describe('resolveEffectiveConfig', () => {
   });
 
   it('applies custom pi settings', () => {
-    const wf: WorkflowDefinition = {
+    const workflow: WorkflowDefinition = {
       config: {
-        tracker: { kind: 'linear', api_key: 'key', project_slug: 'proj' },
+        tracker: { kind: 'linear', api_key: 'key', team_key: 'ENG', project_slug: 'proj' },
         pi: {
           model: 'gpt-4',
           thinking: 'high',
@@ -66,7 +68,7 @@ describe('resolveEffectiveConfig', () => {
       prompt_template: '# Task',
     };
 
-    const config = resolveEffectiveConfig(wf, '/repo');
+    const config = resolveEffectiveConfig(workflow, '/repo');
     expect(config.pi.model).toBe('gpt-4');
     expect(config.pi.thinking).toBe('high');
     expect(config.pi.tools).toEqual(['read', 'bash']);
@@ -74,9 +76,9 @@ describe('resolveEffectiveConfig', () => {
   });
 
   it('applies custom agent settings', () => {
-    const wf: WorkflowDefinition = {
+    const workflow: WorkflowDefinition = {
       config: {
-        tracker: { kind: 'linear', api_key: 'key', project_slug: 'proj' },
+        tracker: { kind: 'linear', api_key: 'key', team_key: 'ENG', project_slug: 'proj' },
         agent: {
           max_concurrent_agents: 5,
           max_turns: 10,
@@ -87,7 +89,7 @@ describe('resolveEffectiveConfig', () => {
       prompt_template: '# Task',
     };
 
-    const config = resolveEffectiveConfig(wf, '/repo');
+    const config = resolveEffectiveConfig(workflow, '/repo');
     expect(config.agent.max_concurrent_agents).toBe(5);
     expect(config.agent.max_turns).toBe(10);
     expect(config.agent.max_retry_backoff_ms).toBe(600000);
@@ -98,14 +100,14 @@ describe('resolveEffectiveConfig', () => {
   });
 
   it('handles missing optional fields gracefully', () => {
-    const wf: WorkflowDefinition = {
+    const workflow: WorkflowDefinition = {
       config: {
-        tracker: { kind: 'linear', api_key: 'key', project_slug: 'proj' },
+        tracker: { kind: 'linear', api_key: 'key', team_key: 'ENG', project_slug: 'proj' },
       },
       prompt_template: '# Task',
     };
 
-    const config = resolveEffectiveConfig(wf, '/repo');
+    const config = resolveEffectiveConfig(workflow, '/repo');
     expect(config.hooks.after_create).toBeNull();
     expect(config.hooks.before_run).toBeNull();
     expect(config.hooks.after_run).toBeNull();
@@ -113,14 +115,14 @@ describe('resolveEffectiveConfig', () => {
   });
 
   it('resolves transition_states from active/terminal/handoff defaults', () => {
-    const wf: WorkflowDefinition = {
+    const workflow: WorkflowDefinition = {
       config: {
-        tracker: { kind: 'linear', api_key: 'key', project_slug: 'proj' },
+        tracker: { kind: 'linear', api_key: 'key', team_key: 'ENG', project_slug: 'proj' },
       },
       prompt_template: '# Task',
     };
 
-    const config = resolveEffectiveConfig(wf, '/repo');
+    const config = resolveEffectiveConfig(workflow, '/repo');
     if (config.tracker.kind !== 'linear') throw new Error('expected linear');
     expect(config.tracker.transition_states).toContain('Todo');
     expect(config.tracker.transition_states).toContain('Done');

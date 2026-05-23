@@ -2,6 +2,7 @@
 tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
+  team_key: $LINEAR_TEAM_KEY
   project_slug: symphony-pi
   active_states:
     - Todo

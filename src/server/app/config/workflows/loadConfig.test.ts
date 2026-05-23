@@ -23,7 +23,15 @@ describe('loadConfig', () => {
   });
 
   it('returns error for empty prompt', () => {
-    const content = '---\ntracker:\n  kind: linear\n  project_slug: test\n---\n';
+    const content = [
+      '---',
+      'tracker:',
+      '  kind: linear',
+      '  team_key: ENG',
+      '  project_slug: test',
+      '---',
+      '',
+    ].join('\n');
     const filePath = makeWorkflowFile(content);
     const result = loadConfig(filePath);
     if (result.type === 'loaded') throw new Error('expected error');
@@ -36,6 +44,7 @@ describe('loadConfig', () => {
       'tracker:',
       '  kind: linear',
       '  api_key: test_key',
+      '  team_key: ENG',
       '  project_slug: my-project',
       '---',
       '# Task',
@@ -47,6 +56,8 @@ describe('loadConfig', () => {
       expect(result.type).toBe('loaded');
       if (result.type !== 'loaded') throw new Error('expected loaded');
       expect(result.config.tracker.kind).toBe('linear');
+      if (result.config.tracker.kind !== 'linear') throw new Error('expected linear');
+      expect(result.config.tracker.team_key).toBe('ENG');
       expect(result.config.workflow).toEqual({
         path: filePath,
         dir: dirname(filePath),
@@ -60,12 +71,13 @@ describe('loadConfig', () => {
     }
   });
 
-  it('returns error for invalid config (missing project_slug)', () => {
+  it('returns error for invalid config (missing team_key)', () => {
     const content = [
       '---',
       'tracker:',
       '  kind: linear',
       '  api_key: test_key',
+      '  project_slug: my-project',
       '---',
       '# Task',
     ].join('\n');
@@ -75,6 +87,7 @@ describe('loadConfig', () => {
       const result = loadConfig(filePath);
       if (result.type === 'loaded') throw new Error('expected error');
       expect(result.error).toContain('Config validation');
+      expect(result.error).toContain('tracker.team_key');
     } finally {
       try {
         unlinkSync(filePath);

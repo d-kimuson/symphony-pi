@@ -9,6 +9,7 @@ const linearTrackerSchema = v.object({
   kind: v.literal('linear'),
   api_key: v.pipe(v.string(), v.nonEmpty()),
   endpoint: v.string(),
+  team_key: v.pipe(v.string(), v.nonEmpty()),
   project_slug: v.pipe(v.string(), v.nonEmpty()),
   active_states: v.array(v.string()),
   terminal_states: v.array(v.string()),
@@ -102,6 +103,9 @@ export const validateConfig = (cfg: EffectiveConfig): readonly string[] => {
 
   // Linear-specific checks
   if (kind === 'linear') {
+    if (cfg.tracker.team_key.length === 0) {
+      errors.push('Missing tracker.team_key (required for Linear)');
+    }
     if (cfg.tracker.project_slug.length === 0) {
       errors.push('Missing tracker.project_slug (required for Linear)');
     }

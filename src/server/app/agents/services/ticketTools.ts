@@ -19,8 +19,8 @@ export const ticketGet = async (
       return await linearGetIssue(issueIdentifier, config.tracker);
     }
     return await jiraGetIssue(issueIdentifier, config.tracker);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     return { error: `Failed to fetch issue: ${message}` };
   }
 };
@@ -38,8 +38,8 @@ export const ticketComment = async (
       return await linearComment(issueIdentifier, comment, config.tracker);
     }
     return await jiraComment(issueIdentifier, comment, config.tracker);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     return { error: `Comment failed: ${message}` };
   }
 };
@@ -54,12 +54,11 @@ export const ticketTransition = async (
   config: EffectiveConfig,
 ): Promise<void | { readonly error: string }> => {
   const isAllowed = config.tracker.transition_states.some(
-    (s) => s.toLowerCase() === targetState.toLowerCase(),
+    (state) => state.toLowerCase() === targetState.toLowerCase(),
   );
   if (!isAllowed) {
     const allowed = config.tracker.transition_states.join(', ');
-    const msg = `Invalid transition target "${targetState}". Allowed: ${allowed}`;
-    return { error: msg };
+    return { error: `Invalid transition target "${targetState}". Allowed: ${allowed}` };
   }
 
   try {
@@ -67,76 +66,173 @@ export const ticketTransition = async (
       return await linearTransition(issueIdentifier, targetState, config.tracker);
     }
     return await jiraTransition(issueIdentifier, targetState, config.tracker);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     return { error: `Transition failed: ${message}` };
   }
 };
 
 // ---- JSON helpers ----
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v);
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
-const isString = (v: unknown): v is string => typeof v === 'string';
+const isString = (value: unknown): value is string => typeof value === 'string';
 
-const isNumber = (v: unknown): v is number => typeof v === 'number';
+const isNumber = (value: unknown): value is number => typeof value === 'number';
 
 const getStr = (obj: Record<string, unknown>, key: string): string | undefined => {
-  const val = obj[key];
-  return isString(val) ? val : undefined;
+  const value = obj[key];
+  return isString(value) ? value : undefined;
 };
 
 const getNum = (obj: Record<string, unknown>, key: string): number | undefined => {
-  const val = obj[key];
-  return isNumber(val) ? val : undefined;
+  const value = obj[key];
+  return isNumber(value) ? value : undefined;
 };
 
 const getObj = (obj: Record<string, unknown>, key: string): Record<string, unknown> | undefined => {
-  const val = obj[key];
-  return isObject(val) ? val : undefined;
+  const value = obj[key];
+  return isObject(value) ? value : undefined;
 };
 
 const getArr = (obj: Record<string, unknown>, key: string): readonly unknown[] | undefined => {
-  const val = obj[key];
-  return Array.isArray(val) ? val : undefined;
+  const value = obj[key];
+  return Array.isArray(value) ? value : undefined;
 };
 
 // ---- Linear helpers ----
+
+type LinearScopedIssue = {
+  readonly linearId: string;
+  readonly issue: Issue;
+};
 
 const linearGetIssue = async (
   issueIdentifier: string,
   tracker: LinearTrackerConfig,
 ): Promise<Issue | { readonly error: string }> => {
-  const query = `
-    query GetIssue($identifier: String!) {
-      issues(filter: { identifier: { eq: $identifier } }, first: 1) {
-        nodes {
-          id identifier title description priority
-          state { name }
-          branchName url
-          labels { nodes { name } }
-          createdAt updatedAt
+  const issue = await linearGetScopedIssue(issueIdentifier, tracker);
+  if ('error' in issue) return issue;
+  return issue.issue;
+};
+
+const linearComment = async (
+  issueIdentifier: string,
+  comment: string,
+  tracker: LinearTrackerConfig,
+): Promise<void | { readonly error: string }> => {
+  const issue = await linearGetScopedIssue(issueIdentifier, tracker);
+  if ('error' in issue) return issue;
+
+  const response = await linearGraphqlRequest(
+    tracker,
+    `
+      mutation CreateComment($issueId: ID!, $body: String!) {
+        commentCreate(input: { issueId: $issueId, body: $body }) { success }
+      }
+    `,
+    { issueId: issue.linearId, body: comment },
+    'Linear comment failed',
+  );
+
+  if ('error' in response) return response;
+};
+
+const linearTransition = async (
+  issueIdentifier: string,
+  targetState: string,
+  tracker: LinearTrackerConfig,
+): Promise<void | { readonly error: string }> => {
+  const issue = await linearGetScopedIssue(issueIdentifier, tracker);
+  if ('error' in issue) return issue;
+
+  const stateLookup = await linearGraphqlRequest(
+    tracker,
+    `
+      query GetStateId($teamKey: String!, $name: String!) {
+        workflowStates(
+          filter: {
+            team: { key: { eq: $teamKey } }
+            name: { eq: $name }
+          }
+          first: 1
+        ) {
+          nodes { id name }
         }
       }
-    }
-  `;
+    `,
+    { teamKey: tracker.team_key, name: targetState },
+    'Linear state lookup failed',
+  );
 
-  const response = await fetch(tracker.endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: tracker.api_key,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ query, variables: { identifier: issueIdentifier } }),
-    signal: AbortSignal.timeout(30000),
-  });
+  if ('error' in stateLookup) return stateLookup;
 
-  if (!response.ok) {
-    return { error: `Linear API returned ${response.status}` };
+  const stateId = extractLinearStateId(stateLookup.body);
+  if (stateId === undefined) {
+    return { error: `State "${targetState}" not found in Linear team ${tracker.team_key}` };
   }
 
-  const body: unknown = await response.json();
+  const updateResponse = await linearGraphqlRequest(
+    tracker,
+    `
+      mutation UpdateIssue($issueId: ID!, $stateId: ID!) {
+        issueUpdate(id: $issueId, input: { stateId: $stateId }) { success }
+      }
+    `,
+    { issueId: issue.linearId, stateId },
+    'Linear transition failed',
+  );
+
+  if ('error' in updateResponse) return updateResponse;
+};
+
+const linearGetScopedIssue = async (
+  issueIdentifier: string,
+  tracker: LinearTrackerConfig,
+): Promise<LinearScopedIssue | { readonly error: string }> => {
+  const projectFilter = buildLinearProjectFilter();
+  const response = await linearGraphqlRequest(
+    tracker,
+    `
+      query GetIssue($identifier: String!, $teamKey: String!, $projectSlug: String!) {
+        issues(
+          filter: {
+            identifier: { eq: $identifier }
+            team: { key: { eq: $teamKey } }
+            ${projectFilter}
+          }
+          first: 1
+        ) {
+          nodes {
+            id
+            identifier
+            title
+            description
+            priority
+            state { name }
+            team { key }
+            project { slugId name }
+            branchName
+            url
+            labels { nodes { name } }
+            createdAt
+            updatedAt
+          }
+        }
+      }
+    `,
+    {
+      identifier: issueIdentifier,
+      teamKey: tracker.team_key,
+      projectSlug: tracker.project_slug,
+    },
+    'Linear API returned',
+  );
+
+  if ('error' in response) return response;
+
+  const body = response.body;
   if (!isObject(body)) return { error: 'Invalid Linear response' };
 
   const data = getObj(body, 'data');
@@ -147,97 +243,74 @@ const linearGetIssue = async (
 
   const nodes = getArr(issues, 'nodes');
   if (nodes === undefined || nodes.length === 0) {
-    return { error: `Issue ${issueIdentifier} not found` };
+    return { error: `Issue ${issueIdentifier} not found in configured Linear scope` };
   }
 
   const raw = nodes[0];
   if (!isObject(raw)) return { error: 'Invalid Linear node' };
 
-  return linearNodeToIssue(raw, issueIdentifier);
+  const normalized = linearNodeToScopedIssue(raw, issueIdentifier, tracker);
+  if ('error' in normalized) return normalized;
+  return normalized;
 };
 
-const linearComment = async (
-  issueIdentifier: string,
-  comment: string,
+const linearGraphqlRequest = async (
   tracker: LinearTrackerConfig,
-): Promise<void | { readonly error: string }> => {
-  const query = `
-    mutation CreateComment($issueId: String!, $body: String!) {
-      commentCreate(input: { issueId: $issueId, body: $body }) { success }
-    }
-  `;
-
+  query: string,
+  variables: Record<string, unknown>,
+  errorPrefix: string,
+): Promise<{ readonly body: unknown } | { readonly error: string }> => {
   const response = await fetch(tracker.endpoint, {
     method: 'POST',
-    headers: { Authorization: tracker.api_key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { issueId: issueIdentifier, body: comment } }),
+    headers: {
+      Authorization: tracker.api_key,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(30000),
   });
 
   if (!response.ok) {
-    return { error: `Linear comment failed: ${response.status}` };
+    return { error: `${errorPrefix}: ${response.status}` };
   }
+
+  const body: unknown = await response.json();
+  const graphqlError = extractLinearGraphqlError(body);
+  if (graphqlError !== undefined) {
+    return { error: `${errorPrefix}: ${graphqlError}` };
+  }
+
+  return { body };
 };
 
-const linearTransition = async (
-  issueIdentifier: string,
-  targetState: string,
-  tracker: LinearTrackerConfig,
-): Promise<void | { readonly error: string }> => {
-  const stateResponse = await fetch(tracker.endpoint, {
-    method: 'POST',
-    headers: { Authorization: tracker.api_key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      query: `
-        query GetStateId($name: String!) {
-          workflowStates(filter: { name: { eq: $name } }, first: 1) {
-            nodes { id name }
-          }
-        }
-      `,
-      variables: { name: targetState },
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
+const extractLinearGraphqlError = (body: unknown): string | undefined => {
+  if (!isObject(body)) return undefined;
+  const errors = getArr(body, 'errors');
+  if (errors === undefined || errors.length === 0) return undefined;
 
-  if (!stateResponse.ok) {
-    return { error: `Linear state lookup failed: ${stateResponse.status}` };
+  const messages: string[] = [];
+  for (const error of errors) {
+    if (!isObject(error)) continue;
+    const message = getStr(error, 'message');
+    if (message !== undefined) {
+      messages.push(message);
+    }
   }
 
-  const stateBody: unknown = await stateResponse.json();
-  const stateId = extractLinearStateId(stateBody);
-  if (stateId === undefined) {
-    return { error: `State "${targetState}" not found in Linear workflow` };
-  }
-
-  const updateResponse = await fetch(tracker.endpoint, {
-    method: 'POST',
-    headers: { Authorization: tracker.api_key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      query: `
-        mutation UpdateIssue($issueId: String!, $stateId: String!) {
-          issueUpdate(id: $issueId, input: { stateId: $stateId }) { success }
-        }
-      `,
-      variables: { issueId: issueIdentifier, stateId },
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!updateResponse.ok) {
-    return { error: `Linear transition failed: ${updateResponse.status}` };
-  }
+  return messages.length > 0 ? messages.join('; ') : 'GraphQL error';
 };
+
+const buildLinearProjectFilter = (): string => 'project: { slugId: { eq: $projectSlug } }';
 
 const extractLinearStateId = (body: unknown): string | undefined => {
   if (!isObject(body)) return undefined;
   const data = getObj(body, 'data');
   if (data === undefined) return undefined;
-  const wfStates = getObj(data, 'workflowStates');
-  if (wfStates === undefined) return undefined;
-  const wfNodes = getArr(wfStates, 'nodes');
-  if (wfNodes === undefined || wfNodes.length === 0) return undefined;
-  const node = wfNodes[0];
+  const workflowStates = getObj(data, 'workflowStates');
+  if (workflowStates === undefined) return undefined;
+  const nodes = getArr(workflowStates, 'nodes');
+  if (nodes === undefined || nodes.length === 0) return undefined;
+  const node = nodes[0];
   if (!isObject(node)) return undefined;
   return getStr(node, 'id');
 };
@@ -330,13 +403,13 @@ const extractJiraTransitionId = (data: unknown, targetState: string): string | u
   const transitions = getArr(data, 'transitions');
   if (transitions === undefined) return undefined;
 
-  for (const t of transitions) {
-    if (!isObject(t)) continue;
-    const to = getObj(t, 'to');
+  for (const transition of transitions) {
+    if (!isObject(transition)) continue;
+    const to = getObj(transition, 'to');
     if (to === undefined) continue;
     const name = getStr(to, 'name');
     if (isString(name) && name.toLowerCase() === targetState.toLowerCase()) {
-      return getStr(t, 'id');
+      return getStr(transition, 'id');
     }
   }
   return undefined;
@@ -344,15 +417,54 @@ const extractJiraTransitionId = (data: unknown, targetState: string): string | u
 
 // ---- Normalization helpers ----
 
+const linearNodeToScopedIssue = (
+  raw: Record<string, unknown>,
+  fallbackIdentifier: string,
+  tracker: LinearTrackerConfig,
+): LinearScopedIssue | { readonly error: string } => {
+  const linearId = getStr(raw, 'id');
+  if (linearId === undefined) {
+    return { error: 'Invalid Linear node: missing id' };
+  }
+
+  const team = getObj(raw, 'team');
+  const project = getObj(raw, 'project');
+  if (!isLinearIssueInScope(team, project, tracker)) {
+    return { error: `Issue ${fallbackIdentifier} is outside configured Linear scope` };
+  }
+
+  return {
+    linearId,
+    issue: linearNodeToIssue(raw, fallbackIdentifier),
+  };
+};
+
+const isLinearIssueInScope = (
+  team: Record<string, unknown> | undefined,
+  project: Record<string, unknown> | undefined,
+  tracker: LinearTrackerConfig,
+): boolean => {
+  const teamKey = team === undefined ? undefined : getStr(team, 'key');
+  if (teamKey !== tracker.team_key) {
+    return false;
+  }
+
+  if (project === undefined) {
+    return false;
+  }
+
+  return getStr(project, 'slugId') === tracker.project_slug;
+};
+
 const linearNodeToIssue = (raw: Record<string, unknown>, fallbackIdentifier: string): Issue => {
   const labelsContainer = getObj(raw, 'labels');
   const labelsNodes: Array<{ name: string }> = [];
   if (labelsContainer !== undefined) {
     const nodes = getArr(labelsContainer, 'nodes');
     if (nodes !== undefined) {
-      for (const n of nodes) {
-        if (!isObject(n)) continue;
-        const name = getStr(n, 'name');
+      for (const node of nodes) {
+        if (!isObject(node)) continue;
+        const name = getStr(node, 'name');
         if (isString(name)) labelsNodes.push({ name });
       }
     }
@@ -374,7 +486,7 @@ const linearNodeToIssue = (raw: Record<string, unknown>, fallbackIdentifier: str
     state: stateName,
     branch_name: getStr(raw, 'branchName') ?? null,
     url: getStr(raw, 'url') ?? null,
-    labels: labelsNodes.map((l) => l.name.toLowerCase()),
+    labels: labelsNodes.map((label) => label.name.toLowerCase()),
     blocked_by: [],
     created_at: getStr(raw, 'createdAt') ?? null,
     updated_at: getStr(raw, 'updatedAt') ?? null,
@@ -386,10 +498,8 @@ const jiraPayloadToIssue = (raw: Record<string, unknown>, baseUrl: string): Issu
   const fields: Record<string, unknown> = fieldsContainer ?? {};
 
   const priorityContainer = getObj(fields, 'priority');
-  let priorityName: string | undefined;
-  if (priorityContainer !== undefined) {
-    priorityName = getStr(priorityContainer, 'name');
-  }
+  const priorityName =
+    priorityContainer === undefined ? undefined : getStr(priorityContainer, 'name');
 
   const statusContainer = getObj(fields, 'status');
   let statusName = 'Unknown';
@@ -401,18 +511,18 @@ const jiraPayloadToIssue = (raw: Record<string, unknown>, baseUrl: string): Issu
   const labelsContainer = getArr(fields, 'labels');
   const labels: string[] = labelsContainer !== undefined ? labelsContainer.filter(isString) : [];
 
-  const keyVal = getStr(raw, 'key');
+  const keyValue = getStr(raw, 'key');
 
   return {
-    id: getStr(raw, 'id') ?? (isString(keyVal) ? keyVal : ''),
-    identifier: isString(keyVal) ? keyVal : '',
+    id: getStr(raw, 'id') ?? (isString(keyValue) ? keyValue : ''),
+    identifier: isString(keyValue) ? keyValue : '',
     title: getStr(fields, 'summary') ?? '',
     description: getStr(fields, 'description') ?? null,
     priority: mapJiraPriority(priorityName),
     state: statusName,
     branch_name: null,
-    url: `${baseUrl}/browse/${isString(keyVal) ? keyVal : ''}`,
-    labels: labels.map((l) => l.toLowerCase()),
+    url: `${baseUrl}/browse/${isString(keyValue) ? keyValue : ''}`,
+    labels: labels.map((label) => label.toLowerCase()),
     blocked_by: [],
     created_at: getStr(fields, 'created') ?? null,
     updated_at: getStr(fields, 'updated') ?? null,

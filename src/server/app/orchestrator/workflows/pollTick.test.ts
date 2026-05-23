@@ -56,6 +56,7 @@ const makeConfig = (overrides?: Partial<EffectiveConfig>): EffectiveConfig => ({
     kind: 'linear',
     api_key: 'test-key',
     endpoint: 'https://api.linear.app/graphql',
+    team_key: 'ENG',
     project_slug: 'test',
     active_states: ['Todo', 'In Progress'],
     terminal_states: ['Done', 'Cancelled'],

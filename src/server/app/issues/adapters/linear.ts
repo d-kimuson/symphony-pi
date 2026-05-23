@@ -31,8 +31,9 @@ const isGraphQLResponse = (value: unknown): value is GraphQLResponse => {
         err === null ||
         typeof err !== 'object' ||
         typeof (err as Record<string, unknown>)['message'] !== 'string'
-      )
+      ) {
         return false;
+      }
     }
   }
   return true;
@@ -44,17 +45,13 @@ const isGraphQLResponse = (value: unknown): value is GraphQLResponse => {
 export const fetchLinearCandidateIssues = async (
   config: LinearTrackerConfig,
 ): Promise<readonly Issue[] | LinearApiError> => {
-  // Try slugId first; if no results, try filtering by project name as fallback.
-  // Linear project_slug can be either the opaque slugId or the human-readable name.
-  const isLikelySlugId = /^[a-f0-9]{8,}$/.test(config.project_slug);
-  const projectFilter = isLikelySlugId
-    ? `project: { slugId: { eq: $projectSlug } }`
-    : `project: { name: { eq: $projectSlug } }`;
+  const projectFilter = buildLinearProjectFilter();
 
   const query = `
-    query CandidateIssues($projectSlug: String!, $activeStates: [String!]!, $first: Int!, $after: String) {
+    query CandidateIssues($teamKey: String!, $projectSlug: String!, $activeStates: [String!]!, $first: Int!, $after: String) {
       issues(
         filter: {
+          team: { key: { eq: $teamKey } }
           ${projectFilter}
           state: { name: { in: $activeStates } }
         }
@@ -68,6 +65,8 @@ export const fetchLinearCandidateIssues = async (
           description
           priority
           state { name }
+          team { id key name }
+          project { id slugId name }
           branchName
           url
           labels { nodes { name } }
@@ -82,12 +81,13 @@ export const fetchLinearCandidateIssues = async (
     }
   `;
 
-  let allIssues: Issue[] = [];
+  const allIssues: Issue[] = [];
   let after: string | null = null;
   let hasNextPage = true;
 
   while (hasNextPage) {
     const result = await executeLinearQuery(config, query, {
+      teamKey: config.team_key,
       projectSlug: config.project_slug,
       activeStates: [...config.active_states],
       first: DEFAULT_PAGE_SIZE,
@@ -129,17 +129,13 @@ export const fetchLinearIssuesByStates = async (
 ): Promise<readonly Issue[] | LinearApiError> => {
   if (stateNames.length === 0) return [];
 
-  // Try slugId first; if no results, try filtering by project name as fallback.
-  // Linear project_slug can be either the opaque slugId or the human-readable name.
-  const isLikelySlugId = /^[a-f0-9]{8,}$/.test(config.project_slug);
-  const projectFilter = isLikelySlugId
-    ? 'project: { slugId: { eq: $projectSlug } }'
-    : 'project: { name: { eq: $projectSlug } }';
+  const projectFilter = buildLinearProjectFilter();
 
   const query = `
-    query IssuesByStates($projectSlug: String!, $states: [String!]!, $first: Int!, $after: String) {
+    query IssuesByStates($teamKey: String!, $projectSlug: String!, $states: [String!]!, $first: Int!, $after: String) {
       issues(
         filter: {
+          team: { key: { eq: $teamKey } }
           ${projectFilter}
           state: { name: { in: $states } }
         }
@@ -153,6 +149,8 @@ export const fetchLinearIssuesByStates = async (
           description
           priority
           state { name }
+          team { id key name }
+          project { id slugId name }
           branchName
           url
           labels { nodes { name } }
@@ -167,12 +165,13 @@ export const fetchLinearIssuesByStates = async (
     }
   `;
 
-  let allIssues: Issue[] = [];
+  const allIssues: Issue[] = [];
   let after: string | null = null;
   let hasNextPage = true;
 
   while (hasNextPage) {
     const result = await executeLinearQuery(config, query, {
+      teamKey: config.team_key,
       projectSlug: config.project_slug,
       states: [...stateNames],
       first: DEFAULT_PAGE_SIZE,
@@ -221,6 +220,8 @@ export const fetchLinearIssueStatesByIds = async (
           description
           priority
           state { name }
+          team { id key name }
+          project { id slugId name }
           branchName
           url
           labels { nodes { name } }
@@ -240,6 +241,8 @@ export const fetchLinearIssueStatesByIds = async (
     .filter((issue): issue is Issue => issue !== null);
 };
 
+const buildLinearProjectFilter = (): string => 'project: { slugId: { eq: $projectSlug } }';
+
 // --- Internal helpers ---
 
 type LinearIssueNode = {
@@ -249,6 +252,8 @@ type LinearIssueNode = {
   description?: unknown;
   priority?: unknown;
   state?: { name?: unknown };
+  team?: { id?: unknown; key?: unknown; name?: unknown };
+  project?: { id?: unknown; slugId?: unknown; name?: unknown };
   branchName?: unknown;
   url?: unknown;
   labels?: { nodes?: readonly { name?: unknown }[] };
@@ -263,37 +268,42 @@ type BlockNode = {
   state?: { name?: unknown };
 };
 
-const normalizeLinearIssue = (
-  node: LinearIssueNode,
-  _config: LinearTrackerConfig,
-): Issue | null => {
-  if (typeof node.id !== 'string' || typeof node.identifier !== 'string') return null;
+const normalizeLinearIssue = (node: LinearIssueNode, config: LinearTrackerConfig): Issue | null => {
+  if (
+    typeof node.id !== 'string' ||
+    typeof node.identifier !== 'string' ||
+    !isLinearIssueInScope(node, config)
+  ) {
+    return null;
+  }
 
-  // Extract label names (not IDs) — SPEC 11.2, 11.4
   const labels: string[] = [];
   const labelNodes = node.labels?.nodes;
   if (labelNodes !== undefined && Array.isArray(labelNodes)) {
-    for (const ln of labelNodes) {
-      if (ln && typeof ln === 'object' && typeof (ln as { name?: unknown }).name === 'string') {
-        labels.push((ln as { name: string }).name.toLowerCase());
+    for (const labelNode of labelNodes) {
+      if (
+        labelNode &&
+        typeof labelNode === 'object' &&
+        typeof (labelNode as { name?: unknown }).name === 'string'
+      ) {
+        labels.push((labelNode as { name: string }).name.toLowerCase());
       }
     }
   }
 
-  // Extract blockers from inverse relation `blocks` — SPEC 11.2
   const blockedBy: { id: string | null; identifier: string | null; state: string | null }[] = [];
   const blockNodes = node.blocks?.nodes;
   if (blockNodes !== undefined && Array.isArray(blockNodes)) {
-    for (const bn of blockNodes) {
-      if (bn && typeof bn === 'object') {
+    for (const blockNode of blockNodes) {
+      if (blockNode && typeof blockNode === 'object') {
         blockedBy.push({
-          id: typeof bn.id === 'string' ? bn.id : null,
-          identifier: typeof bn.identifier === 'string' ? bn.identifier : null,
+          id: typeof blockNode.id === 'string' ? blockNode.id : null,
+          identifier: typeof blockNode.identifier === 'string' ? blockNode.identifier : null,
           state:
-            bn.state &&
-            typeof bn.state === 'object' &&
-            typeof (bn.state as { name?: unknown }).name === 'string'
-              ? (bn.state as { name: string }).name
+            blockNode.state &&
+            typeof blockNode.state === 'object' &&
+            typeof (blockNode.state as { name?: unknown }).name === 'string'
+              ? (blockNode.state as { name: string }).name
               : null,
         });
       }
@@ -315,6 +325,14 @@ const normalizeLinearIssue = (
     created_at: ensureStringOrNull(node.createdAt),
     updated_at: ensureStringOrNull(node.updatedAt),
   };
+};
+
+const isLinearIssueInScope = (node: LinearIssueNode, config: LinearTrackerConfig): boolean => {
+  if (typeof node.team?.key !== 'string' || node.team.key !== config.team_key) {
+    return false;
+  }
+
+  return typeof node.project?.slugId === 'string' && node.project.slugId === config.project_slug;
 };
 
 const ensureStringOrNull = (value: unknown): string | null =>
@@ -360,7 +378,7 @@ const executeLinearQuery = async (
     if (json.errors && json.errors.length > 0) {
       return {
         type: 'linear_graphql_errors',
-        errors: json.errors.map((e) => e.message),
+        errors: json.errors.map((error) => error.message),
       };
     }
 
@@ -381,21 +399,25 @@ const executeLinearQuery = async (
     const pageInfoRaw = issuesObj['pageInfo'];
     let pageInfo: { hasNextPage: boolean; endCursor: string | null };
     if (pageInfoRaw !== null && typeof pageInfoRaw === 'object') {
-      const pi = pageInfoRaw as Record<string, unknown>;
+      const pageInfoObject = pageInfoRaw as Record<string, unknown>;
       pageInfo = {
-        hasNextPage: typeof pi['hasNextPage'] === 'boolean' ? pi['hasNextPage'] : false,
-        endCursor: typeof pi['endCursor'] === 'string' ? pi['endCursor'] : null,
+        hasNextPage:
+          typeof pageInfoObject['hasNextPage'] === 'boolean'
+            ? pageInfoObject['hasNextPage']
+            : false,
+        endCursor:
+          typeof pageInfoObject['endCursor'] === 'string' ? pageInfoObject['endCursor'] : null,
       };
     } else {
       pageInfo = { hasNextPage: false, endCursor: null };
     }
 
     return { nodes, pageInfo };
-  } catch (e: unknown) {
-    if (e instanceof DOMException && e.name === 'AbortError') {
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
       return { type: 'linear_api_request', message: 'Request timed out' };
     }
-    const message = e instanceof Error ? e.message : String(e);
+    const message = error instanceof Error ? error.message : String(error);
     return { type: 'linear_api_request', message };
   } finally {
     clearTimeout(timeout);

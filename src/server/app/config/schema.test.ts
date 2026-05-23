@@ -8,6 +8,7 @@ const linearTracker: LinearTrackerConfig = {
   kind: 'linear',
   api_key: 'lin_key',
   endpoint: 'https://api.linear.app/graphql',
+  team_key: 'ENG',
   project_slug: 'my-project',
   active_states: ['Todo', 'In Progress'],
   terminal_states: ['Closed', 'Cancelled', 'Done'],
@@ -52,7 +53,7 @@ describe('validateConfig', () => {
   });
 
   it('returns empty for valid jira config', () => {
-    const jiraCfg: EffectiveConfig = {
+    const jiraConfig: EffectiveConfig = {
       ...baseConfig,
       tracker: {
         kind: 'jira',
@@ -67,11 +68,11 @@ describe('validateConfig', () => {
         transition_states: ['Todo', 'Closed'],
       },
     };
-    expect(validateConfig(jiraCfg)).toEqual([]);
+    expect(validateConfig(jiraConfig)).toEqual([]);
   });
 
   it('validates jira config with jql instead of project_key', () => {
-    const jiraCfg: EffectiveConfig = {
+    const jiraConfig: EffectiveConfig = {
       ...baseConfig,
       tracker: {
         kind: 'jira',
@@ -86,39 +87,48 @@ describe('validateConfig', () => {
         transition_states: ['Todo', 'Closed'],
       },
     };
-    expect(validateConfig(jiraCfg)).toEqual([]);
+    expect(validateConfig(jiraConfig)).toEqual([]);
   });
 
   it('reports unsupported tracker kind', () => {
-    const cfg = { ...baseConfig, tracker: { kind: 'github' } } as unknown as EffectiveConfig;
-    const errors = validateConfig(cfg);
+    const config = { ...baseConfig, tracker: { kind: 'github' } } as unknown as EffectiveConfig;
+    const errors = validateConfig(config);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0]).toContain('Unsupported tracker kind');
   });
 
   it('reports missing api_key', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       tracker: { ...linearTracker, api_key: '' },
     };
-    const errors = validateConfig(cfg);
+    const errors = validateConfig(config);
     expect(errors).toContain('Missing tracker.api_key');
   });
 
+  it('reports missing team_key for linear', () => {
+    const config: EffectiveConfig = {
+      ...baseConfig,
+      tracker: { ...linearTracker, team_key: '' },
+    };
+    const errors = validateConfig(config);
+    expect(errors).toContain('Missing tracker.team_key (required for Linear)');
+  });
+
   it('reports missing project_slug for linear', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       tracker: { ...linearTracker, project_slug: '' },
     };
-    const errors = validateConfig(cfg);
+    const errors = validateConfig(config);
     expect(errors).toContain('Missing tracker.project_slug (required for Linear)');
   });
 
   it('reports missing base_url for jira', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       tracker: {
-        kind: 'jira' as const,
+        kind: 'jira',
         api_key: 'token',
         email: 'user@example.com',
         base_url: '',
@@ -130,14 +140,14 @@ describe('validateConfig', () => {
         transition_states: ['Todo', 'Closed'],
       },
     };
-    expect(validateConfig(cfg)).toContain('Missing tracker.base_url (required for Jira)');
+    expect(validateConfig(config)).toContain('Missing tracker.base_url (required for Jira)');
   });
 
   it('reports missing email for jira', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       tracker: {
-        kind: 'jira' as const,
+        kind: 'jira',
         api_key: 'token',
         email: '',
         base_url: 'https://example.atlassian.net',
@@ -149,14 +159,14 @@ describe('validateConfig', () => {
         transition_states: ['Todo', 'Closed'],
       },
     };
-    expect(validateConfig(cfg)).toContain('Missing tracker.email (required for Jira)');
+    expect(validateConfig(config)).toContain('Missing tracker.email (required for Jira)');
   });
 
   it('reports missing both project_key and jql for jira', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       tracker: {
-        kind: 'jira' as const,
+        kind: 'jira',
         api_key: 'token',
         email: 'user@example.com',
         base_url: 'https://example.atlassian.net',
@@ -168,33 +178,33 @@ describe('validateConfig', () => {
         transition_states: ['Todo', 'Closed'],
       },
     };
-    expect(validateConfig(cfg)).toContain(
+    expect(validateConfig(config)).toContain(
       'Either tracker.project_key or tracker.jql is required for Jira',
     );
   });
 
   it('reports non-positive max_turns', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       agent: { ...baseConfig.agent, max_turns: 0 },
     };
-    expect(validateConfig(cfg)).toContain('agent.max_turns must be positive');
+    expect(validateConfig(config)).toContain('agent.max_turns must be positive');
   });
 
   it('reports non-positive hooks.timeout_ms', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       hooks: { ...baseConfig.hooks, timeout_ms: 0 },
     };
-    expect(validateConfig(cfg)).toContain('hooks.timeout_ms must be positive');
+    expect(validateConfig(config)).toContain('hooks.timeout_ms must be positive');
   });
 
   it('reports invalid port', () => {
-    const cfg: EffectiveConfig = {
+    const config: EffectiveConfig = {
       ...baseConfig,
       prompt_template: null,
       server: { ...baseConfig.server, port: 0 },
     };
-    expect(validateConfig(cfg)).toContain('server.port must be between 1 and 65535');
+    expect(validateConfig(config)).toContain('server.port must be between 1 and 65535');
   });
 });

@@ -18,6 +18,7 @@ const trackerConfig: LinearTrackerConfig = {
   kind: 'linear',
   api_key: 'key',
   endpoint: 'https://api.linear.app/graphql',
+  team_key: 'ENG',
   project_slug: 'proj',
   active_states: ['Todo', 'In Progress'],
   terminal_states: ['Closed', 'Cancelled', 'Done'],

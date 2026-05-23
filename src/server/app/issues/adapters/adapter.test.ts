@@ -37,6 +37,7 @@ describe('Tracker adapter types', () => {
       kind: 'linear',
       api_key: 'key',
       endpoint: 'https://api.linear.app/graphql',
+      team_key: 'ENG',
       project_slug: 'my-proj',
       active_states: ['Todo'],
       terminal_states: ['Done'],

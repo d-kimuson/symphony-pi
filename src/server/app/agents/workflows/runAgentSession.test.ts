@@ -25,6 +25,7 @@ const testConfig: EffectiveConfig = {
     kind: 'linear',
     api_key: 'test',
     endpoint: 'https://api.linear.app/graphql',
+    team_key: 'ENG',
     project_slug: 'test',
     active_states: ['Todo', 'In Progress'],
     terminal_states: ['Done', 'Cancelled'],

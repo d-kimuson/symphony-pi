@@ -121,7 +121,7 @@ describe('runAgentSession', () => {
 
     const startEvent = events.find((e: unknown) => {
       const obj = e as Record<string, unknown>;
-      return obj.event === 'session_started';
+      return obj['event'] === 'session_started';
     });
     expect(startEvent).toBeDefined();
   });

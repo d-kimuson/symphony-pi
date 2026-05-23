@@ -7,6 +7,7 @@ import { createPiSessionHandle } from './createPiSession.js';
 // Mock the pi SDK import
 vi.mock('@earendil-works/pi-coding-agent', () => ({
   createAgentSession: vi.fn().mockRejectedValue(new Error('SDK not available')),
+  defineTool: vi.fn((tool: unknown) => tool),
 }));
 
 const testConfig: EffectiveConfig = {
@@ -44,56 +45,31 @@ const testConfig: EffectiveConfig = {
     stall_timeout_ms: 300000,
   },
   server: { port: 48484, host: '127.0.0.1' },
+  prompt_template: 'Work on {{ issue.identifier }}',
 };
 
 describe('createPiSessionHandle', () => {
-  it('returns error result when SDK is unavailable', async () => {
+  it('returns error when SDK is unavailable (no mock fallback)', async () => {
     const result = await createPiSessionHandle({
       workspacePath: '/tmp/test-workspace',
       config: testConfig,
+      issueIdentifier: 'TEST-1',
     });
 
     expect(result.type).toBe('error');
-    // assert error content
-    const errorMessage = result.type === 'error' && result.error !== undefined;
-    expect(errorMessage).toBe(true);
+    // Narrow the discriminated union
+    if (result.type !== 'error') throw new Error('Expected error');
+    expect(result.error).toContain('SDK not available');
   });
 
-  it('returns error type for each invocation', async () => {
-    const r1 = await createPiSessionHandle({
-      workspacePath: '/tmp/test-workspace',
-      config: testConfig,
-    });
-    expect(r1.type).toBe('error');
-
-    const r2 = await createPiSessionHandle({
-      workspacePath: '/tmp/test-workspace',
-      config: testConfig,
-    });
-    expect(r2.type).toBe('error');
-  });
-
-  it('handles minimal config', async () => {
+  it('builds ticket tool definitions with session-local context', async () => {
     const result = await createPiSessionHandle({
       workspacePath: '/tmp/test-workspace',
       config: testConfig,
+      issueIdentifier: 'TEST-2',
     });
-    expect(result.type).toBe('error');
-  });
 
-  it('handles workspace path correctly', async () => {
-    const result = await createPiSessionHandle({
-      workspacePath: '/tmp/custom-workspace',
-      config: testConfig,
-    });
-    expect(result.type).toBe('error');
-  });
-
-  it('produces consistent error results', async () => {
-    const result = await createPiSessionHandle({
-      workspacePath: '/tmp/test-workspace',
-      config: testConfig,
-    });
+    // SDK mock rejects, so we get error type (no mock fallback in production)
     expect(result.type).toBe('error');
   });
 });

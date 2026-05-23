@@ -61,6 +61,7 @@ export type BootstrapOptions = {
   readonly createSessionHandle: (
     workspacePath: string,
     config: EffectiveConfig,
+    issueIdentifier: string,
   ) => Promise<AgentSessionHandle>;
 };
 

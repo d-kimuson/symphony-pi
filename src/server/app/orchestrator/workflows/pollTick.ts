@@ -31,6 +31,7 @@ import {
 export type SessionHandleFactory = (
   workspacePath: string,
   config: EffectiveConfig,
+  issueIdentifier: string,
 ) => Promise<AgentSessionHandle>;
 
 // Module-level storage for workflow prompt template (set during bootstrap)
@@ -283,7 +284,7 @@ const runDispatchWorker = async (
 
     let sessionHandle: AgentSessionHandle;
     try {
-      sessionHandle = await sessionFactory(workspacePath, config);
+      sessionHandle = await sessionFactory(workspacePath, config, issue.identifier);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       handleWorkerExit(state, entry.issue_id, false, `Session creation failed: ${msg}`, config);

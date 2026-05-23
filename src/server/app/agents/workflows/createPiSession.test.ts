@@ -1,17 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { EffectiveConfig } from '../../config/model.js';
-
-import { createPiSessionHandle } from './createPiSession.js';
-
-// Mock the pi SDK import
-vi.mock('@earendil-works/pi-coding-agent', () => ({
-  createAgentSession: vi.fn().mockRejectedValue(new Error('SDK not available')),
-  defineTool: vi.fn((tool: unknown) => tool),
-  AuthStorage: { create: vi.fn(() => ({})), fromStorage: vi.fn(), inMemory: vi.fn() },
-  ModelRegistry: { create: vi.fn(() => ({})), inMemory: vi.fn() },
-  SessionManager: { create: vi.fn(() => ({})), open: vi.fn(), resume: vi.fn() },
-}));
 
 const testConfig: EffectiveConfig = {
   tracker: {
@@ -40,10 +29,10 @@ const testConfig: EffectiveConfig = {
     max_concurrent_agents_by_state: {},
   },
   pi: {
-    model: null,
-    thinking: null,
-    tools: ['read', 'bash', 'edit', 'write'],
-    session_dir: null,
+    model: 'anthropic/claude-test',
+    thinking: 'medium',
+    tools: ['read', 'bash'],
+    session_dir: '/tmp/sessions',
     turn_timeout_ms: 3600000,
     stall_timeout_ms: 300000,
   },
@@ -51,28 +40,97 @@ const testConfig: EffectiveConfig = {
   prompt_template: 'Work on {{ issue.identifier }}',
 };
 
+const { mockCreateAgentSession, mockSession } = vi.hoisted(() => {
+  const s = {
+    sessionId: 'test-session-id',
+    prompt: vi.fn().mockResolvedValue(undefined),
+    dispose: vi.fn(),
+    abort: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockReturnValue(() => {}),
+  };
+  return {
+    mockCreateAgentSession: vi.fn().mockResolvedValue({ session: s, extensionsResult: {} }),
+    mockSession: s,
+  };
+});
+
+vi.mock('@earendil-works/pi-coding-agent', () => ({
+  createAgentSession: mockCreateAgentSession,
+  defineTool: vi.fn((tool: unknown) => tool),
+  AuthStorage: { create: vi.fn(() => ({})), fromStorage: vi.fn(), inMemory: vi.fn() },
+  ModelRegistry: {
+    create: vi.fn(() => ({ find: vi.fn(), getAll: vi.fn(() => []) })),
+    inMemory: vi.fn(),
+  },
+  SessionManager: { create: vi.fn(() => ({})), open: vi.fn(), resume: vi.fn() },
+}));
+
+import { ModelRegistry } from '@earendil-works/pi-coding-agent';
+
+import { createPiSessionHandle } from './createPiSession.js';
+
 describe('createPiSessionHandle', () => {
-  it('returns error when SDK is unavailable (no mock fallback)', async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateAgentSession.mockResolvedValue({ session: mockSession, extensionsResult: {} });
+  });
+
+  it('returns error when SDK fails (no mock fallback)', async () => {
+    mockCreateAgentSession.mockRejectedValueOnce(new Error('SDK failure'));
     const result = await createPiSessionHandle({
-      workspacePath: '/tmp/test-workspace',
+      workspacePath: '/tmp/ws',
+      config: { ...testConfig, pi: { ...testConfig.pi, model: null } },
+      issueIdentifier: 'TEST-1',
+    });
+    expect(result.type).toBe('error');
+    if (result.type !== 'error') throw new Error('Expected error');
+    expect(result.error).toContain('SDK failure');
+  });
+
+  it('resolves model and creates session', async () => {
+    // Pre-configure the registry that will be created inside the function
+    const mockFind = vi.fn().mockReturnValue({
+      provider: 'anthropic',
+      id: 'claude-test',
+      name: 'C',
+      api: 'anthropic_messages' as const,
+      baseUrl: 'url',
+      reasoning: false,
+      input: ['text' as const],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1000,
+      maxTokens: 100,
+    });
+    // eslint-disable-next-line typescript/unbound-method -- vi mocking pattern
+    vi.mocked(ModelRegistry.create).mockReturnValue({
+      find: mockFind,
+      getAll: vi.fn(() => []),
+    } as never);
+
+    const result = await createPiSessionHandle({
+      workspacePath: '/tmp/ws',
       config: testConfig,
       issueIdentifier: 'TEST-1',
     });
-
-    expect(result.type).toBe('error');
-    // Narrow the discriminated union
-    if (result.type !== 'error') throw new Error('Expected error');
-    expect(result.error).toContain('SDK not available');
+    expect(result.type).toBe('created');
+    if (result.type !== 'created') throw new Error('Expected created');
+    expect(result.handle.sessionId).toBe('test-session-id');
   });
 
-  it('builds ticket tool definitions with session-local context', async () => {
-    const result = await createPiSessionHandle({
-      workspacePath: '/tmp/test-workspace',
-      config: testConfig,
-      issueIdentifier: 'TEST-2',
-    });
+  it('returns error when model not found', async () => {
+    // eslint-disable-next-line typescript/unbound-method -- vi mocking pattern
+    vi.mocked(ModelRegistry.create).mockReturnValue({
+      find: vi.fn().mockReturnValue(undefined),
+      getAll: vi.fn(() => []),
+    } as never);
 
-    // SDK mock rejects, so we get error type (no mock fallback in production)
+    const result = await createPiSessionHandle({
+      workspacePath: '/tmp/ws',
+      config: { ...testConfig, pi: { ...testConfig.pi, model: 'unknown/x' } },
+      issueIdentifier: 'TEST-1',
+    });
     expect(result.type).toBe('error');
+    if (result.type !== 'error') throw new Error('Expected error');
+    expect(result.error).toContain('Model not found');
   });
 });

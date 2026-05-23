@@ -2,6 +2,7 @@
 
 export type CliArgs = {
   port?: number;
+  workflow?: string;
 };
 
 /**
@@ -19,6 +20,12 @@ export const parseCliArgs = (argv: readonly string[]): CliArgs => {
       i++;
       if (!Number.isNaN(val) && val > 0 && val <= 65535) {
         args.port = val;
+      }
+    } else if (arg === '--workflow' && i + 1 < argv.length) {
+      const next = argv[i + 1];
+      if (next !== undefined && next.length > 0) {
+        args.workflow = next;
+        i++;
       }
     }
   }

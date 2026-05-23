@@ -3,8 +3,9 @@
  * Implements SPEC 10.1 session creation contract.
  *
  * Uses @earendil-works/pi-coding-agent SDK exports.
- * Configures model, thinking, tools, session_dir from EffectiveConfig.
- * NO production mock fallback — SDK failures are startup_failed errors.
+ * Creates agent sessions via createAgentSession convenience API.
+ *
+ * NO production mock fallback — SDK failures are startup errors.
  */
 
 import type { EffectiveConfig } from '../../config/model.js';
@@ -23,13 +24,12 @@ export type PiSessionResult =
  * Create a real pi-coding-agent SDK session as an AgentSessionHandle.
  *
  * SPEC 10.1 compliance:
+ * - Uses createAgentSession convenience API
  * - Passes cwd = workspacePath
- * - Passes pi.model as model option
+ * - Passes pi.model as model option (string ID resolved by SDK's ModelRegistry)
  * - Passes pi.thinking as thinkingLevel
- * - Passes pi.tools as initialActiveToolNames
- * - Passes pi.session_dir as sessionDir
- *
- * Returns error on SDK failure — NO mock fallback in production.
+ * - Subscribes to session events via session.subscribe()
+ * - Returns error on SDK failure — NO mock fallback in production
  */
 export const createPiSessionHandle = async (options: PiCreateOptions): Promise<PiSessionResult> => {
   const { workspacePath, config } = options;
@@ -37,9 +37,7 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
   try {
     const { createAgentSession } = await import('@earendil-works/pi-coding-agent');
 
-    // Build SDK options object matching CreateAgentSessionOptions shape
-    // Note: pi.model is a string identifier; the SDK resolves it via ModelRegistry.
-    // We use Record<string, unknown> because CreateAgentSessionOptions types vary by SDK version.
+    // Build SDK options object
     const sdkOptions: Record<string, unknown> = {
       cwd: workspacePath,
     };
@@ -50,16 +48,9 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
     if (config.pi.thinking !== null) {
       sdkOptions['thinkingLevel'] = config.pi.thinking;
     }
-    if (config.pi.tools.length > 0) {
-      sdkOptions['initialActiveToolNames'] = [...config.pi.tools];
-    }
-    if (config.pi.session_dir !== null) {
-      sdkOptions['sessionDir'] = config.pi.session_dir;
-    }
 
-    // The SDK function signature accepts CreateAgentSessionOptions which may vary.
-    // We use a Record to pass config values; the SDK validates at runtime.
-    // Safe because createAgentSession accepts a superset of these options.
+    // Create session via SDK convenience API
+    // The SDK type system is complex; we use a structured options object
     const result = await createAgentSession(sdkOptions as Parameters<typeof createAgentSession>[0]);
 
     const session = result.session;
@@ -79,9 +70,10 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
         },
 
         events: {
-          subscribe: (_handler: (event: unknown) => void): (() => void) => {
-            // pi SDK has private event listeners; turn completion via prompt() resolution
-            return () => {};
+          subscribe: (handler: (event: unknown) => void): (() => void) => {
+            return session.subscribe((e: unknown) => {
+              handler(e);
+            });
           },
         },
       },

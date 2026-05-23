@@ -21,6 +21,7 @@ import {
   sortCandidatesByPriority,
   isDispatchEligible,
   hasGlobalSlots,
+  hasStateSlots,
   createRetryEntry,
   isSessionStalled,
   determineReconciliationAction,
@@ -70,6 +71,7 @@ export const pollTick = async (
   // 4. Dispatch eligible issues while slots remain
   for (const issue of sorted) {
     if (!hasGlobalSlots(config, state.running)) break;
+    if (!hasStateSlots(issue.state, config, state.running)) continue;
     if (!isDispatchEligible(issue, config, state.running, state.claimed)) continue;
 
     // Claim and dispatch
@@ -169,6 +171,7 @@ const dispatchIssue = (state: OrchestratorState, issue: Issue, config: Effective
   const entry: RunningEntry = {
     issue_id: issue.id,
     issue_identifier: issue.identifier,
+    issue_state: issue.state,
     workspace_path: workspace.path,
     started_at: Date.now(),
     attempt: null,

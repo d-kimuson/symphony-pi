@@ -155,7 +155,7 @@ export const runAgentSession = async (
 
 /**
  * Run a single turn with timeout and abort support.
- * Uses AbortController to properly cancel underlying work on timeout.
+ * On timeout, disposes the session to abort the underlying pi prompt.
  */
 const runTurnWithTimeout = async (
   sessionHandle: AgentSessionHandle,
@@ -166,7 +166,11 @@ const runTurnWithTimeout = async (
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const timeoutPromise = new Promise<'timed_out'>((resolve) => {
-    timer = setTimeout(() => resolve('timed_out'), timeoutMs);
+    timer = setTimeout(() => {
+      // On timeout, dispose the session to abort the underlying prompt
+      sessionHandle.dispose().catch(() => {});
+      resolve('timed_out');
+    }, timeoutMs);
   });
 
   const abortPromise = new Promise<'aborted'>((resolve) => {

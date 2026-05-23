@@ -24,7 +24,12 @@ import { startServer } from '../server.js';
 import { startDynamicReload } from './config/workflows/dynamicReload.js';
 import { loadConfig } from './config/workflows/loadConfig.js';
 import { setTrackerAdapter, fetchIssuesByStates } from './issues/workflows/fetchIssues.js';
-import { pollTick } from './orchestrator/workflows/pollTick.js';
+import {
+  pollTick,
+  handleRetryFire,
+  setWorkflowPromptTemplate,
+  setSessionHandleFactory,
+} from './orchestrator/workflows/pollTick.js';
 import { setOrchestratorState } from './status/routes.js';
 import { removeWorkspace } from './workspaces/workflows/ensureWorkspace.js';
 
@@ -94,6 +99,16 @@ export const bootstrap = async (
   setTrackerAdapter(adapterResult);
   console.log(`[symphony] Tracker adapter created: ${config.tracker.kind}`);
 
+  // Set workflow prompt template for dispatch
+  const promptTemplate = config.prompt_template;
+  if (promptTemplate !== undefined && promptTemplate !== null && promptTemplate !== '') {
+    setWorkflowPromptTemplate(promptTemplate);
+    console.log(`[symphony] Workflow prompt template loaded (${promptTemplate.length} chars)`);
+  }
+
+  // Set session handle factory
+  setSessionHandleFactory(options.createSessionHandle);
+
   // --- Phase 3: Start HTTP server ---
   const serverResult = await startServer({
     preferredPort: options.preferredPort ?? config.server.port,
@@ -122,16 +137,18 @@ export const bootstrap = async (
   try {
     const terminalIssues = await fetchIssuesByStates(config, config.tracker.terminal_states);
     if (terminalIssues !== null) {
+      const { sanitizeWorkspaceKey, buildWorkspacePath } =
+        await import('./workspaces/services/workspacePaths.js');
+      let removedCount = 0;
       for (const issue of terminalIssues) {
-        const { ensureWorkspace: ew } = await import('./workspaces/workflows/ensureWorkspace.js');
-        const wsResult = ew(issue.identifier, config.workspace.root);
-        if (wsResult.type !== 'error') {
-          await removeWorkspace(wsResult.workspace.path, config);
+        const wsKey = sanitizeWorkspaceKey(issue.identifier);
+        const wsPath = buildWorkspacePath(config.workspace.root, wsKey);
+        if (existsSync(wsPath)) {
+          await removeWorkspace(wsPath, config);
+          removedCount++;
         }
       }
-      console.log(
-        `[symphony] Startup cleanup: removed ${terminalIssues.length} terminal workspaces`,
-      );
+      console.log(`[symphony] Startup cleanup: removed ${removedCount} terminal workspaces`);
     } else {
       console.warn('[symphony] Startup cleanup: failed to fetch terminal issues, skipping');
     }
@@ -157,14 +174,19 @@ export const bootstrap = async (
         console.error(`[symphony] Poll tick error: ${msg}`);
       }
 
-      // Fire pending retry timers
+      // Fire pending retry timers (SPEC 8.4)
       const now = Date.now();
+      const dueEntries: Array<{
+        issueId: string;
+        entry: typeof state.retry_attempts extends Map<string, infer V> ? V : never;
+      }> = [];
       for (const [issueId, entry] of state.retry_attempts) {
         if (entry.due_at_ms <= now) {
-          state.retry_attempts.delete(issueId);
-          state.claimed.delete(issueId);
-          // The issue will be re-evaluated for dispatch on the next poll tick
+          dueEntries.push({ issueId, entry });
         }
+      }
+      for (const { issueId } of dueEntries) {
+        await handleRetryFire(state, issueId, cfg);
       }
     };
 
@@ -184,7 +206,21 @@ export const bootstrap = async (
     workflowPath,
     (newConfig: EffectiveConfig) => {
       config = newConfig;
+      state.poll_interval_ms = newConfig.polling.interval_ms;
+      state.max_concurrent_agents = newConfig.agent.max_concurrent_agents;
       startPollLoop(newConfig);
+
+      // Update workflow prompt template
+      if (newConfig.prompt_template !== null && newConfig.prompt_template !== undefined) {
+        setWorkflowPromptTemplate(newConfig.prompt_template);
+      }
+
+      // Recreate tracker adapter if kind changed (SPEC 6.2)
+      const newAdapterResult = options.createTrackerAdapter(newConfig.tracker);
+      if (!('type' in newAdapterResult)) {
+        setTrackerAdapter(newAdapterResult);
+      }
+
       console.log('[symphony] Config reloaded successfully');
     },
     (error: string) => {

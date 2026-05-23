@@ -36,6 +36,7 @@ describe('buildRuntimeSnapshot', () => {
       issue_id: 'i1',
       issue_identifier: 'TEST-1',
       workspace_path: '/ws/TEST-1',
+      issue_state: 'Todo',
       started_at: Date.now(),
       attempt: null,
       turn_count: 3,

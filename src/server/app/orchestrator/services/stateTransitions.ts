@@ -79,6 +79,7 @@ export const hasGlobalSlots = (
 
 /**
  * Check if per-state concurrency slots are available.
+ * SPEC 8.3: Count running entries by issue_state, compare to max_concurrent_agents_by_state.
  */
 export const hasStateSlots = (
   state: string,
@@ -88,9 +89,14 @@ export const hasStateSlots = (
   const stateLimit = config.agent.max_concurrent_agents_by_state[state.toLowerCase()];
   if (stateLimit === undefined) return true; // no state-specific limit
 
-  // Simplified: count all running since we don't track issue state in RunningEntry
-  // In practice, we'd need to track the issue state in the running entry
-  return running.size < stateLimit;
+  // Count running entries for this state
+  let count = 0;
+  for (const [, entry] of running) {
+    if (entry.issue_state.toLowerCase() === state.toLowerCase()) {
+      count++;
+    }
+  }
+  return count < stateLimit;
 };
 
 /**

@@ -12,6 +12,7 @@ export type RetryEntry = {
 export type RunningEntry = {
   readonly issue_id: string;
   readonly issue_identifier: string;
+  readonly issue_state: string;
   readonly workspace_path: string;
   readonly started_at: number;
   readonly attempt: number | null;
@@ -28,8 +29,8 @@ export type AgentTotals = {
 };
 
 export type OrchestratorState = {
-  readonly poll_interval_ms: number;
-  readonly max_concurrent_agents: number;
+  poll_interval_ms: number;
+  max_concurrent_agents: number;
   readonly running: Map<string, RunningEntry>;
   readonly claimed: Set<string>;
   readonly retry_attempts: Map<string, RetryEntry>;

@@ -97,7 +97,12 @@ export const resolveEffectiveConfig = (
       port: ensurePort(serverSection['port']) ?? 48484,
       host: ensureString(serverSection['host']) ?? '127.0.0.1',
     },
-    prompt_template: null,
+    prompt_template:
+      workflow.prompt_template !== null &&
+      workflow.prompt_template !== undefined &&
+      workflow.prompt_template !== ''
+        ? workflow.prompt_template
+        : null,
   };
 };
 

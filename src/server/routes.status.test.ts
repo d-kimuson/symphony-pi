@@ -28,7 +28,6 @@ describe('routes (status API)', () => {
     expect(res.status).toBe(404);
     const body: unknown = await res.json();
     if (typeof body !== 'object' || body === null) throw new Error('expected object');
-    // oxlint-disable-next-line no-unsafe-type-assertion
     const b = body as { found: boolean };
     expect(b['found']).toBe(false);
   });
@@ -40,7 +39,6 @@ describe('routes (status API)', () => {
     expect(res.status).toBe(200);
     const body: unknown = await res.json();
     if (typeof body !== 'object' || body === null) throw new Error('expected object');
-    // oxlint-disable-next-line no-unsafe-type-assertion
     const b = body as { status: string };
     expect(b['status']).toBe('refresh_requested');
   });

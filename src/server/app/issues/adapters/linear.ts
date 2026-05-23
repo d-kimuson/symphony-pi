@@ -71,7 +71,6 @@ export const fetchLinearCandidateIssues = async (
           branchName
           url
           labels { nodes { name } }
-          blocks { nodes { id identifier state { name } } }
           createdAt
           updatedAt
         }
@@ -154,7 +153,6 @@ export const fetchLinearIssuesByStates = async (
           branchName
           url
           labels { nodes { name } }
-          blocks { nodes { id identifier state { name } } }
           createdAt
           updatedAt
         }
@@ -223,7 +221,6 @@ export const fetchLinearIssueStatesByIds = async (
           branchName
           url
           labels { nodes { name } }
-          blocks { nodes { id identifier state { name } } }
           createdAt
           updatedAt
         }

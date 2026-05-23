@@ -40,6 +40,7 @@ describe('buildRuntimeSnapshot', () => {
       started_at: Date.now(),
       attempt: null,
       turn_count: 3,
+      abortController: new AbortController(),
     });
 
     const snapshot = buildRuntimeSnapshot(state);

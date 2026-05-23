@@ -26,8 +26,11 @@ const args = parseCliArgs(process.argv);
 // Set session factory before bootstrap (dependency injection)
 setSessionHandleFactory(createRealSessionHandle);
 
-// Default workflow path
-const workflowPath = resolve(process.cwd(), 'WORKFLOW.md');
+// CLI --workflow path override, otherwise default to cwd/WORKFLOW.md
+const workflowPath =
+  args.workflow !== undefined && args.workflow !== ''
+    ? resolve(args.workflow)
+    : resolve(process.cwd(), 'WORKFLOW.md');
 
 bootstrap({
   workflowPath,

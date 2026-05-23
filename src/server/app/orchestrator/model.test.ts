@@ -32,6 +32,7 @@ describe('RunningEntry', () => {
     started_at: 1700000000000,
     attempt: null,
     turn_count: 3,
+    abortController: new AbortController(),
   } as const satisfies RunningEntry;
 
   it('has all fields', () => {
@@ -88,6 +89,7 @@ describe('OrchestratorState', () => {
       started_at: Date.now(),
       attempt: null,
       turn_count: 0,
+      abortController: new AbortController(),
     });
     expect(state.running.size).toBe(1);
   });

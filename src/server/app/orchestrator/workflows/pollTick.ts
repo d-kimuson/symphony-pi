@@ -97,7 +97,8 @@ const reconcileRunningIssues = async (
   // Part A: Stall detection
   for (const [issueId, entry] of state.running) {
     if (isSessionStalled(entry, config.pi.stall_timeout_ms, null)) {
-      // Terminate and queue retry
+      // Abort the worker then queue retry
+      entry.abortController.abort();
       const retry = createRetryEntry(
         issueId,
         entry.issue_identifier,
@@ -128,7 +129,8 @@ const reconcileRunningIssues = async (
 
     switch (action.action) {
       case 'stop_and_cleanup': {
-        // Terminal state: terminate worker + clean workspace (SPEC 8.5)
+        // Terminal state: abort worker + clean workspace (SPEC 8.5)
+        entry.abortController.abort();
         state.running.delete(issue.id);
         state.claimed.delete(issue.id);
         state.completed.add(issue.id);
@@ -140,7 +142,8 @@ const reconcileRunningIssues = async (
         // Keep running, snapshot is updated via the running entry
         break;
       case 'stop_without_cleanup': {
-        // Neither active nor terminal: terminate without workspace cleanup (SPEC 8.5)
+        // Neither active nor terminal: abort worker without workspace cleanup (SPEC 8.5)
+        entry.abortController.abort();
         state.running.delete(issue.id);
         state.claimed.delete(issue.id);
         break;
@@ -168,6 +171,8 @@ const dispatchIssue = (state: OrchestratorState, issue: Issue, config: Effective
 
   const workspace = wsResult.workspace;
 
+  const abortController = new AbortController();
+
   const entry: RunningEntry = {
     issue_id: issue.id,
     issue_identifier: issue.identifier,
@@ -176,11 +181,20 @@ const dispatchIssue = (state: OrchestratorState, issue: Issue, config: Effective
     started_at: Date.now(),
     attempt: null,
     turn_count: 0,
+    abortController,
   };
   state.running.set(issue.id, entry);
 
   // Fire-and-forget: run the agent in the background
-  void runDispatchWorker(state, entry, issue, workspace.path, config, wsResult.type === 'created');
+  void runDispatchWorker(
+    state,
+    entry,
+    issue,
+    workspace.path,
+    config,
+    wsResult.type === 'created',
+    abortController.signal,
+  );
 };
 
 /**
@@ -194,7 +208,14 @@ const runDispatchWorker = async (
   workspacePath: string,
   config: EffectiveConfig,
   isNewWorkspace: boolean,
+  signal: AbortSignal,
 ): Promise<void> => {
+  // Check if already aborted
+  if (signal.aborted) {
+    handleWorkerExit(state, entry.issue_id, false, 'Cancelled by reconciliation', config);
+    return;
+  }
+
   try {
     // Run after_create hook for newly created workspaces (SPEC 9.4)
     if (isNewWorkspace && config.hooks.after_create !== null && config.hooks.after_create !== '') {

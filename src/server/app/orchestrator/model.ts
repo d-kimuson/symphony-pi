@@ -19,6 +19,8 @@ export type RunningEntry = {
   readonly turn_count: number;
   /** Last agent event timestamp for stall detection (SPEC 8.5) */
   readonly last_agent_timestamp?: number;
+  /** Abort controller for cancelling the background worker during reconciliation (SPEC 8.5) */
+  readonly abortController: AbortController;
 };
 
 export type AgentTotals = {

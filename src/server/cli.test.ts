@@ -22,4 +22,14 @@ describe('parseCliArgs', () => {
     const result = parseCliArgs(['node', 'main.ts', '--port', '5555', '--other']);
     expect(result).toEqual({ port: 5555 });
   });
+
+  it('parses --workflow flag', () => {
+    const result = parseCliArgs(['node', 'main.ts', '--workflow', '/path/to/WORKFLOW.md']);
+    expect(result).toEqual({ workflow: '/path/to/WORKFLOW.md' });
+  });
+
+  it('parses both --port and --workflow', () => {
+    const result = parseCliArgs(['node', 'main.ts', '--port', '9999', '--workflow', '/custom.md']);
+    expect(result).toEqual({ port: 9999, workflow: '/custom.md' });
+  });
 });

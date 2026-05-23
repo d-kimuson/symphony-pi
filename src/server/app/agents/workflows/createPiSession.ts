@@ -11,6 +11,42 @@
 import type { EffectiveConfig } from '../../config/model.js';
 import type { AgentSessionHandle } from './runAgentSession.js';
 
+// Ticket tool definitions (SPEC 10.5)
+// Registered as custom tools on the pi session so the agent can operate on tickets.
+const ticketToolDefs = {
+  ticket_get: {
+    name: 'ticket_get',
+    description: 'Fetch details for the active issue ticket from the tracker',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  ticket_comment: {
+    name: 'ticket_comment',
+    description: 'Add a comment to the active issue ticket via the tracker API',
+    parameters: {
+      type: 'object',
+      properties: {
+        comment: { type: 'string', description: 'Comment text to add to the ticket' },
+      },
+      required: ['comment'],
+    },
+  },
+  ticket_transition: {
+    name: 'ticket_transition',
+    description: 'Move the active issue ticket to a target state',
+    parameters: {
+      type: 'object',
+      properties: {
+        state: { type: 'string', description: 'Target state name to transition to' },
+      },
+      required: ['state'],
+    },
+  },
+};
+
 export type PiCreateOptions = {
   readonly workspacePath: string;
   readonly config: EffectiveConfig;
@@ -48,6 +84,21 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
     if (config.pi.thinking !== null) {
       sdkOptions['thinkingLevel'] = config.pi.thinking;
     }
+
+    // Register ticket tools as custom tools (SPEC 10.5)
+    sdkOptions['customTools'] = [
+      ticketToolDefs.ticket_get,
+      ticketToolDefs.ticket_comment,
+      ticketToolDefs.ticket_transition,
+    ];
+
+    // Pass configured tools (SPEC 10.1)
+    sdkOptions['initialActiveToolNames'] = [
+      ...config.pi.tools,
+      'ticket_get',
+      'ticket_comment',
+      'ticket_transition',
+    ];
 
     // Create session via SDK convenience API
     // The SDK type system is complex; we use a structured options object

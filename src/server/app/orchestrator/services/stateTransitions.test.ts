@@ -110,6 +110,7 @@ describe('isDispatchEligible', () => {
       started_at: 0,
       attempt: null,
       turn_count: 0,
+      abortController: new AbortController(),
     });
     expect(isDispatchEligible(makeIssue(), baseConfig, running, new Set())).toBe(false);
   });
@@ -148,6 +149,7 @@ describe('hasGlobalSlots', () => {
         started_at: 0,
         attempt: null,
         turn_count: 0,
+        abortController: new AbortController(),
       });
     }
     expect(hasGlobalSlots(baseConfig, running)).toBe(false);
@@ -197,6 +199,7 @@ describe('isSessionStalled', () => {
       started_at: 0,
       attempt: null,
       turn_count: 0,
+      abortController: new AbortController(),
     };
     expect(isSessionStalled(entry, 0, null)).toBe(false);
   });
@@ -210,6 +213,7 @@ describe('isSessionStalled', () => {
       started_at: 0,
       attempt: null,
       turn_count: 0,
+      abortController: new AbortController(),
     };
     expect(isSessionStalled(entry, 1000, null)).toBe(true);
   });

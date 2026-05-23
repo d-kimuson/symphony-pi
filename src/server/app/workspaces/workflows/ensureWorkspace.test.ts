@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import type { EffectiveConfig } from '../../config/model.js';
 
@@ -21,7 +21,7 @@ vi.mock('../../../lib/process/index.js', () => ({
   execShellScript: vi.fn(),
 }));
 
-import { rmSync } from 'node:fs';
+import { rmSync, existsSync, mkdirSync } from 'node:fs';
 
 import { execShellScript } from '../../../lib/process/index.js';
 

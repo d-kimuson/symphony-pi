@@ -90,7 +90,6 @@ describe('validateConfig', () => {
   });
 
   it('reports unsupported tracker kind', () => {
-    // oxlint-disable-next-line no-unsafe-type-assertion
     const cfg = { ...baseConfig, tracker: { kind: 'github' } } as unknown as EffectiveConfig;
     const errors = validateConfig(cfg);
     expect(errors.length).toBeGreaterThan(0);

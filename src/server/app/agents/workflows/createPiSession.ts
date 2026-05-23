@@ -11,7 +11,7 @@
  */
 
 import { defineTool } from '@earendil-works/pi-coding-agent';
-import { Type } from '@sinclair/typebox';
+import { String as Str, Object as Obj } from '@sinclair/typebox';
 
 import type { EffectiveConfig } from '../../config/model.js';
 import type { AgentSessionHandle } from './runAgentSession.js';
@@ -40,7 +40,7 @@ const buildTicketToolDefs = (config: EffectiveConfig, issueIdentifier: string) =
     label: 'Get Ticket',
     description: 'Fetch details for the active issue ticket from the tracker',
     promptSnippet: 'ticket_get — fetch issue details',
-    parameters: Type.Object({}),
+    parameters: Obj({}),
     execute: async () => {
       const result = await ticketGet(issueIdentifier, config);
       const text = 'error' in result ? `Error: ${result.error}` : JSON.stringify(result, null, 2);
@@ -54,8 +54,8 @@ const buildTicketToolDefs = (config: EffectiveConfig, issueIdentifier: string) =
     label: 'Comment on Ticket',
     description: 'Add a comment to the active issue ticket via the tracker API',
     promptSnippet: 'ticket_comment — add a comment to the ticket',
-    parameters: Type.Object({
-      comment: Type.String({ description: 'Comment text to add to the ticket' }),
+    parameters: Obj({
+      comment: Str(),
     }),
     execute: async (_toolCallId, params) => {
       const result = await ticketComment(issueIdentifier, params.comment, config);
@@ -75,8 +75,8 @@ const buildTicketToolDefs = (config: EffectiveConfig, issueIdentifier: string) =
     label: 'Transition Ticket',
     description: `Move the active issue ticket to a target state. Allowed states: ${config.tracker.transition_states.join(', ')}`,
     promptSnippet: 'ticket_transition — move ticket to a target state',
-    parameters: Type.Object({
-      state: Type.String({ description: 'Target state name to transition to' }),
+    parameters: Obj({
+      state: Str(),
     }),
     execute: async (_toolCallId, params) => {
       const result = await ticketTransition(issueIdentifier, params.state, config);

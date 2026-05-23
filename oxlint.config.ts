@@ -279,6 +279,7 @@ export default defineConfig({
         // Test mocks use `as Response` for fetch mocking — standard vitest pattern
         'typescript/no-unsafe-type-assertion': 'off',
         'typescript/require-await': 'off',
+        'eslint/no-unused-vars': 'off',
       },
     },
     {

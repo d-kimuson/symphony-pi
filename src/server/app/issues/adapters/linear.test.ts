@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { LinearTrackerConfig } from '../../config/model.js';
+import type { LinearTrackerConfig } from '../../config/model.ts';
 
 import {
   fetchLinearCandidateIssues,
   fetchLinearIssuesByStates,
   fetchLinearIssueStatesByIds,
-} from './linear.js';
+} from './linear.ts';
 
 const testConfig: LinearTrackerConfig = {
   kind: 'linear',

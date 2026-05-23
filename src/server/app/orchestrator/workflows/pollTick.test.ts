@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import type { EffectiveConfig } from '../../config/model.js';
-import type { Issue } from '../../issues/model.js';
-import type { OrchestratorState, RunningEntry, RetryEntry } from '../model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { Issue } from '../../issues/model.ts';
+import type { OrchestratorState, RunningEntry, RetryEntry } from '../model.ts';
 
 import {
   handleWorkerExit,
@@ -10,7 +10,7 @@ import {
   pollTick,
   setWorkflowPromptTemplate,
   setSessionHandleFactory,
-} from './pollTick.js';
+} from './pollTick.ts';
 
 // Mocks
 vi.mock('../../issues/workflows/fetchIssues.js', () => ({
@@ -34,16 +34,16 @@ vi.mock('../../agents/services/buildPrompt.js', () => ({
   renderPrompt: vi.fn(),
 }));
 
-import { renderPrompt } from '../../agents/services/buildPrompt.js';
-import { runAgentSession } from '../../agents/workflows/runAgentSession.js';
-import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.js';
+import { renderPrompt } from '../../agents/services/buildPrompt.ts';
+import { runAgentSession } from '../../agents/workflows/runAgentSession.ts';
+import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.ts';
 import {
   ensureWorkspace,
   runAfterCreateHook,
   runBeforeRunHook,
   runAfterRunHook,
   removeWorkspace,
-} from '../../workspaces/workflows/ensureWorkspace.js';
+} from '../../workspaces/workflows/ensureWorkspace.ts';
 
 const mockFetchIssues = vi.mocked(fetchIssues);
 const mockFetchStates = vi.mocked(fetchIssueStatesByIds);

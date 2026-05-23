@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { OrchestratorState } from '../../orchestrator/model.js';
+import type { OrchestratorState } from '../../orchestrator/model.ts';
 
-import { buildRuntimeSnapshot } from './runtimeSnapshot.js';
+import { buildRuntimeSnapshot } from './runtimeSnapshot.ts';
 
 describe('buildRuntimeSnapshot', () => {
   const makeState = (): OrchestratorState => ({

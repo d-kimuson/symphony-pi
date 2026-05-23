@@ -2,7 +2,7 @@
 
 import * as v from 'valibot';
 
-import type { EffectiveConfig } from './model.js';
+import type { EffectiveConfig } from './model.ts';
 
 // Base schemas with type-safe validation
 const linearTrackerSchema = v.object({

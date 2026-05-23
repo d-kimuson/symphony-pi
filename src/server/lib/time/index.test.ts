@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { elapsedMs, monotonicNowMs, utcNow } from './index.js';
+import { elapsedMs, monotonicNowMs, utcNow } from './index.ts';
 
 describe('monotonicNowMs', () => {
   it('returns a positive number', () => {

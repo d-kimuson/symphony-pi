@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AgentRunnerEvent, LiveSession, RunAttempt, RunAttemptStatus } from './model.js';
+import type { AgentRunnerEvent, LiveSession, RunAttempt, RunAttemptStatus } from './model.ts';
 
 describe('RunAttemptStatus', () => {
   const allStatuses: readonly RunAttemptStatus[] = [

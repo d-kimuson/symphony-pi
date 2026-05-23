@@ -1,23 +1,23 @@
 /** Poll tick workflow. The orchestrator is the only owner of scheduling state mutations. */
 
-import type { AgentRunnerEvent } from '../../agents/model.js';
-import type { EffectiveConfig } from '../../config/model.js';
-import type { Issue } from '../../issues/model.js';
-import type { OrchestratorState, RunningEntry } from '../model.js';
+import type { AgentRunnerEvent } from '../../agents/model.ts';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { Issue } from '../../issues/model.ts';
+import type { OrchestratorState, RunningEntry } from '../model.ts';
 
-import { renderPrompt } from '../../agents/services/buildPrompt.js';
+import { renderPrompt } from '../../agents/services/buildPrompt.ts';
 import {
   runAgentSession,
   type AgentSessionHandle,
-} from '../../agents/workflows/runAgentSession.js';
-import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.js';
+} from '../../agents/workflows/runAgentSession.ts';
+import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.ts';
 import {
   ensureWorkspace,
   runAfterCreateHook,
   runBeforeRunHook,
   runAfterRunHook,
   removeWorkspace,
-} from '../../workspaces/workflows/ensureWorkspace.js';
+} from '../../workspaces/workflows/ensureWorkspace.ts';
 import {
   sortCandidatesByPriority,
   isDispatchEligible,
@@ -26,7 +26,7 @@ import {
   createRetryEntry,
   isSessionStalled,
   determineReconciliationAction,
-} from '../services/stateTransitions.js';
+} from '../services/stateTransitions.ts';
 
 export type SessionHandleFactory = (
   workspacePath: string,

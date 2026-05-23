@@ -1,10 +1,10 @@
 /** Side-effectful pi-coding-agent session lifecycle workflow. */
 
-import type { EffectiveConfig } from '../../config/model.js';
-import type { Issue } from '../../issues/model.js';
-import type { AgentRunnerEvent } from '../model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { Issue } from '../../issues/model.ts';
+import type { AgentRunnerEvent } from '../model.ts';
 
-import { buildContinuationPrompt } from '../services/buildPrompt.js';
+import { buildContinuationPrompt } from '../services/buildPrompt.ts';
 
 export type AgentSessionHandle = {
   readonly sessionId: string;

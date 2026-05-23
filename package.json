@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "run-p 'dev:*'",
-    "dev:server": "tsx watch src/main.ts",
+    "dev:server": "node --watch src/main.ts",
     "dev:web": "vite",
     "build:web": "vite build",
     "typecheck": "tsgo -p . --noEmit",
@@ -66,7 +66,6 @@
     "oxlint": "1.65.0",
     "oxlint-tsgolint": "0.22.1",
     "playwright": "1.60.0",
-    "tsx": "4.22.3",
     "vite": "8.0.13",
     "vite-tsconfig-paths": "6.1.1",
     "vitest": "4.1.6"

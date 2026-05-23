@@ -2,7 +2,7 @@ import type { Hono } from 'hono';
 
 import type { HonoAppType, HonoContext } from './app.ts';
 
-import { mountStatusRoutes } from './app/status/routes.js';
+import { mountStatusRoutes } from './app/status/routes.ts';
 
 export const routes = (app: HonoAppType) => {
   app.get('/info', (c) => {

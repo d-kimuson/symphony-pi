@@ -3,14 +3,14 @@
  * Creates a TrackerAdapter from LinearTrackerConfig.
  */
 
-import type { LinearTrackerConfig } from '../../config/model.js';
-import type { TrackerAdapter } from './trackerAdapter.js';
+import type { LinearTrackerConfig } from '../../config/model.ts';
+import type { TrackerAdapter } from './trackerAdapter.ts';
 
 import {
   fetchLinearCandidateIssues,
   fetchLinearIssuesByStates,
   fetchLinearIssueStatesByIds,
-} from './linear.js';
+} from './linear.ts';
 
 export const createLinearAdapter = (config: LinearTrackerConfig): TrackerAdapter => ({
   fetchCandidateIssues: () =>

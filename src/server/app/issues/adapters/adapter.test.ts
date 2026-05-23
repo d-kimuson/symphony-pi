@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { JiraTrackerConfig, LinearTrackerConfig } from '../../config/model.js';
-import type { Issue } from '../model.js';
+import type { JiraTrackerConfig, LinearTrackerConfig } from '../../config/model.ts';
+import type { Issue } from '../model.ts';
 
 // Test the type shapes and error discriminated unions
 

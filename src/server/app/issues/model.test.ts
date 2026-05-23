@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { BlockerRef, Issue } from './model.js';
+import type { BlockerRef, Issue } from './model.ts';
 
 describe('Issue type', () => {
   const sampleIssue: Issue = {

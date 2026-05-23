@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Issue } from '../../issues/model.js';
+import type { Issue } from '../../issues/model.ts';
 
-import { renderPrompt, buildContinuationPrompt } from './buildPrompt.js';
+import { renderPrompt, buildContinuationPrompt } from './buildPrompt.ts';
 
 const sampleIssue: Issue = {
   id: '123',

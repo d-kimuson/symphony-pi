@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { EffectiveConfig, JiraTrackerConfig, LinearTrackerConfig } from './model.js';
+import type { EffectiveConfig, JiraTrackerConfig, LinearTrackerConfig } from './model.ts';
 
 describe('TrackerConfig (discriminated union)', () => {
   it('LinearTrackerConfig has kind linear', () => {

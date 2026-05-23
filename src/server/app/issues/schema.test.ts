@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isIssue, validateIssuePayload } from './schema.js';
+import { isIssue, validateIssuePayload } from './schema.ts';
 
 describe('validateIssuePayload', () => {
   it('returns valid for a complete payload', () => {

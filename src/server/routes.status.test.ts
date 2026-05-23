@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 
-import type { HonoContext } from './app.js';
+import type { HonoContext } from './app.ts';
 
-import { mountStatusRoutes } from './app/status/routes.js';
-import { routes } from './routes.js';
+import { mountStatusRoutes } from './app/status/routes.ts';
+import { routes } from './routes.ts';
 
 const makeApp = (): Hono<HonoContext> => new Hono<HonoContext>();
 

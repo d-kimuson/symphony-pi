@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseCliArgs } from './cli.js';
+import { parseCliArgs } from './cli.ts';
 
 describe('parseCliArgs (Commander-based)', () => {
   it('returns default workflow path when no args', () => {

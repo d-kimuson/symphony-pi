@@ -3,14 +3,14 @@
  * Creates a TrackerAdapter from JiraTrackerConfig.
  */
 
-import type { JiraTrackerConfig } from '../../config/model.js';
-import type { TrackerAdapter } from './trackerAdapter.js';
+import type { JiraTrackerConfig } from '../../config/model.ts';
+import type { TrackerAdapter } from './trackerAdapter.ts';
 
 import {
   fetchJiraCandidateIssues,
   fetchJiraIssuesByStates,
   fetchJiraIssueStatesByIds,
-} from './jira.js';
+} from './jira.ts';
 
 export const createJiraAdapter = (config: JiraTrackerConfig): TrackerAdapter => ({
   fetchCandidateIssues: () =>

@@ -2,15 +2,15 @@
 
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 
-import type { EffectiveConfig } from '../../config/model.js';
-import type { Workspace } from '../model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { Workspace } from '../model.ts';
 
-import { execShellScript } from '../../../lib/process/index.js';
+import { execShellScript } from '../../../lib/process/index.ts';
 import {
   sanitizeWorkspaceKey,
   buildWorkspacePath,
   isWorkspacePathContained,
-} from '../services/workspacePaths.js';
+} from '../services/workspacePaths.ts';
 
 export type WorkspaceResult =
   | { readonly type: 'created'; readonly workspace: Workspace }

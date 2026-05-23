@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { JiraTrackerConfig } from '../../config/model.js';
+import type { JiraTrackerConfig } from '../../config/model.ts';
 
 import {
   fetchJiraCandidateIssues,
   fetchJiraIssuesByStates,
   fetchJiraIssueStatesByIds,
-} from './jira.js';
+} from './jira.ts';
 
 const testConfig: JiraTrackerConfig = {
   kind: 'jira',

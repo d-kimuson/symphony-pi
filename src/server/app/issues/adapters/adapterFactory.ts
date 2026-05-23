@@ -3,12 +3,12 @@
  * Creates Linear or Jira adapter from typed config.
  */
 
-import type { BootstrapError } from '../../bootstrap.js';
-import type { TrackerConfig } from '../../config/model.js';
-import type { TrackerAdapter } from './trackerAdapter.js';
+import type { BootstrapError } from '../../bootstrap.ts';
+import type { TrackerConfig } from '../../config/model.ts';
+import type { TrackerAdapter } from './trackerAdapter.ts';
 
-import { createJiraAdapter } from './jiraAdapter.js';
-import { createLinearAdapter } from './linearAdapter.js';
+import { createJiraAdapter } from './jiraAdapter.ts';
+import { createLinearAdapter } from './linearAdapter.ts';
 
 export const createTrackerAdapter = (config: TrackerConfig): TrackerAdapter | BootstrapError => {
   switch (config.kind) {

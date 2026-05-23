@@ -1,15 +1,15 @@
 /** Pure orchestrator state transition and scheduling-decision helpers. */
 
-import type { EffectiveConfig } from '../../config/model.js';
-import type { Issue } from '../../issues/model.js';
-import type { RetryEntry, RunningEntry } from '../model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { Issue } from '../../issues/model.ts';
+import type { RetryEntry, RunningEntry } from '../model.ts';
 
 import {
   isActiveState,
   isTerminalState,
   canDispatchBlockerRule,
   hasRequiredFields,
-} from '../../issues/services/issueEligibility.js';
+} from '../../issues/services/issueEligibility.ts';
 
 /**
  * Sort candidates by dispatch priority:

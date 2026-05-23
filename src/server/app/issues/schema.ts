@@ -1,6 +1,6 @@
 /** Runtime schemas for issue-tracker payload boundaries. */
 
-import type { Issue } from './model.js';
+import type { Issue } from './model.ts';
 
 export type ValidationResult =
   | { readonly valid: true }

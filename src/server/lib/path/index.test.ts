@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { expandHome, isSubPath, normalizePath, resolveAbsolute } from './index.js';
+import { expandHome, isSubPath, normalizePath, resolveAbsolute } from './index.ts';
 
 describe('expandHome', () => {
   it('expands ~ to home directory', () => {

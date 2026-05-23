@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { EffectiveConfig } from '../../config/model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
 
 const testConfig: EffectiveConfig = {
   tracker: {
@@ -67,7 +67,7 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
 
 import { ModelRegistry } from '@earendil-works/pi-coding-agent';
 
-import { createPiSessionHandle } from './createPiSession.js';
+import { createPiSessionHandle } from './createPiSession.ts';
 
 describe('createPiSessionHandle', () => {
   beforeEach(() => {

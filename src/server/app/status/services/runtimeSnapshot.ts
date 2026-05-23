@@ -1,7 +1,7 @@
 /** Pure projection from orchestrator runtime state to status read models. */
 
-import type { OrchestratorState } from '../../orchestrator/model.js';
-import type { RuntimeSnapshot, RunningRow, RetryRow } from '../model.js';
+import type { OrchestratorState } from '../../orchestrator/model.ts';
+import type { RuntimeSnapshot, RunningRow, RetryRow } from '../model.ts';
 
 /**
  * Build a runtime snapshot from orchestrator state.

@@ -6,7 +6,7 @@ import {
   resolveWorkspaceRoot,
   resolveTransitionStates,
   getWorkflowDir,
-} from './resolveWorkflowConfig.js';
+} from './resolveWorkflowConfig.ts';
 
 describe('resolveEnvVar', () => {
   it('returns value without $ prefix as-is', () => {

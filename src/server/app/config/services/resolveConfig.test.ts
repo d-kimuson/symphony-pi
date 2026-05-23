@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { WorkflowDefinition } from '../../workflow/model.js';
+import type { WorkflowDefinition } from '../../workflow/model.ts';
 
-import { resolveEffectiveConfig } from './resolveConfig.js';
+import { resolveEffectiveConfig } from './resolveConfig.ts';
 
 describe('resolveEffectiveConfig', () => {
   const baseWorkflow: WorkflowDefinition = {

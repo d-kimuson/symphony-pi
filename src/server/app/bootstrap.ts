@@ -15,23 +15,23 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import type { AgentSessionHandle } from './agents/workflows/runAgentSession.js';
-import type { EffectiveConfig, TrackerConfig } from './config/model.js';
-import type { TrackerAdapter } from './issues/adapters/trackerAdapter.js';
-import type { OrchestratorState } from './orchestrator/model.js';
+import type { AgentSessionHandle } from './agents/workflows/runAgentSession.ts';
+import type { EffectiveConfig, TrackerConfig } from './config/model.ts';
+import type { TrackerAdapter } from './issues/adapters/trackerAdapter.ts';
+import type { OrchestratorState } from './orchestrator/model.ts';
 
-import { startServer } from '../server.js';
-import { startDynamicReload } from './config/workflows/dynamicReload.js';
-import { loadConfig } from './config/workflows/loadConfig.js';
-import { setTrackerAdapter, fetchIssuesByStates } from './issues/workflows/fetchIssues.js';
+import { startServer } from '../server.ts';
+import { startDynamicReload } from './config/workflows/dynamicReload.ts';
+import { loadConfig } from './config/workflows/loadConfig.ts';
+import { setTrackerAdapter, fetchIssuesByStates } from './issues/workflows/fetchIssues.ts';
 import {
   pollTick,
   handleRetryFire,
   setWorkflowPromptTemplate,
   setSessionHandleFactory,
-} from './orchestrator/workflows/pollTick.js';
-import { setOrchestratorState, setRefreshTrigger } from './status/routes.js';
-import { removeWorkspace } from './workspaces/workflows/ensureWorkspace.js';
+} from './orchestrator/workflows/pollTick.ts';
+import { setOrchestratorState, setRefreshTrigger } from './status/routes.ts';
+import { removeWorkspace } from './workspaces/workflows/ensureWorkspace.ts';
 
 // --- Public bootstrap API ---
 

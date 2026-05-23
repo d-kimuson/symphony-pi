@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Issue } from '../model.js';
+import type { Issue } from '../model.ts';
 
 import {
   canDispatchBlockerRule,
@@ -10,7 +10,7 @@ import {
   isTerminalState,
   normalizeLabels,
   normalizePriority,
-} from './issueEligibility.js';
+} from './issueEligibility.ts';
 
 const activeStates = ['Todo', 'In Progress'] as const;
 const terminalStates = ['Closed', 'Cancelled', 'Done'] as const;

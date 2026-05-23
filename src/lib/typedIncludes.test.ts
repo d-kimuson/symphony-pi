@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { typedIncludes } from './typedIncludes.js';
+import { typedIncludes } from './typedIncludes.ts';
 
 describe('typedIncludes', () => {
   const colors = ['red', 'green', 'blue'] as const;

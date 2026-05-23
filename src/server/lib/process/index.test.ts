@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { execShellScript } from './index.js';
+import { execShellScript } from './index.ts';
 
 describe('execShellScript (execa)', () => {
   it('executes a simple command and returns stdout', async () => {

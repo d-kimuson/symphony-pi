@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { composeSessionId, formatTurnId, generateThreadId } from './index.js';
+import { composeSessionId, formatTurnId, generateThreadId } from './index.ts';
 
 describe('generateThreadId', () => {
   it('returns a non-empty UUID string', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import type { EffectiveConfig } from '../../config/model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
 
 import {
   ensureWorkspace,
@@ -9,7 +9,7 @@ import {
   runAfterRunHook,
   runBeforeRemoveHook,
   removeWorkspace,
-} from './ensureWorkspace.js';
+} from './ensureWorkspace.ts';
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -23,7 +23,7 @@ vi.mock('../../../lib/process/index.js', () => ({
 
 import { rmSync, existsSync, mkdirSync } from 'node:fs';
 
-import { execShellScript } from '../../../lib/process/index.js';
+import { execShellScript } from '../../../lib/process/index.ts';
 
 const mockExec = execShellScript as ReturnType<typeof vi.fn>;
 

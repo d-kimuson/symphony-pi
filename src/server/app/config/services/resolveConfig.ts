@@ -1,13 +1,13 @@
 /** Pure helpers for typed config getters and validation rules. */
 
-import type { WorkflowDefinition } from '../../workflow/model.js';
-import type { EffectiveConfig, TrackerConfig } from '../model.js';
+import type { WorkflowDefinition } from '../../workflow/model.ts';
+import type { EffectiveConfig, TrackerConfig } from '../model.ts';
 
 import {
   resolveWorkspaceRoot,
   resolveTransitionStates,
   resolveEnvVar,
-} from '../../workflow/services/resolveWorkflowConfig.js';
+} from '../../workflow/services/resolveWorkflowConfig.ts';
 
 /** Helper: get a sub-object from config as Record or undefined */
 const getObj = (obj: Record<string, unknown>, key: string): Record<string, unknown> | undefined => {

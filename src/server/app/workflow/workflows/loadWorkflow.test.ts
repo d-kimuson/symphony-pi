@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseFrontMatter } from './loadWorkflow.js';
+import { parseFrontMatter } from './loadWorkflow.ts';
 
 describe('parseFrontMatter', () => {
   it('parses YAML front matter and body', () => {

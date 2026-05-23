@@ -1,8 +1,8 @@
 import { watchFile } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { startDynamicReload } from './dynamicReload.js';
-import { loadConfig } from './loadConfig.js';
+import { startDynamicReload } from './dynamicReload.ts';
+import { loadConfig } from './loadConfig.ts';
 
 vi.mock('./loadConfig.js', () => ({
   loadConfig: vi.fn(),

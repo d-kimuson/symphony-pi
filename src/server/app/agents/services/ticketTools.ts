@@ -4,8 +4,8 @@ import type {
   EffectiveConfig,
   LinearTrackerConfig,
   JiraTrackerConfig,
-} from '../../config/model.js';
-import type { Issue } from '../../issues/model.js';
+} from '../../config/model.ts';
+import type { Issue } from '../../issues/model.ts';
 
 /**
  * Fetch details for a single issue by its identifier.

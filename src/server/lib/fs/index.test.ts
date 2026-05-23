@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { ensureDir, isDirectory, pathExists, removeDir } from './index.js';
+import { ensureDir, isDirectory, pathExists, removeDir } from './index.ts';
 
 describe('ensureDir', () => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'symphony-test-')));

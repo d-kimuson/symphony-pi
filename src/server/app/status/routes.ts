@@ -2,10 +2,10 @@
 
 import type { Hono } from 'hono';
 
-import type { HonoContext } from '../../app.js';
-import type { OrchestratorState } from '../orchestrator/model.js';
+import type { HonoContext } from '../../app.ts';
+import type { OrchestratorState } from '../orchestrator/model.ts';
 
-import { buildRuntimeSnapshot } from './services/runtimeSnapshot.js';
+import { buildRuntimeSnapshot } from './services/runtimeSnapshot.ts';
 
 let orchestratorState: OrchestratorState | null = null;
 let refreshTrigger: (() => void) | null = null;

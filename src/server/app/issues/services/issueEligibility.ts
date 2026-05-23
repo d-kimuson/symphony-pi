@@ -1,6 +1,6 @@
 /** Pure issue normalization and eligibility helpers. */
 
-import type { Issue } from '../model.js';
+import type { Issue } from '../model.ts';
 
 /**
  * Normalize labels to lowercase.

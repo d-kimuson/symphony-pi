@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { RuntimeSnapshot, RunningRow, RetryRow } from './model.js';
+import type { RuntimeSnapshot, RunningRow, RetryRow } from './model.ts';
 
 describe('RunningRow', () => {
   const row: RunningRow = {

@@ -1,6 +1,6 @@
 /** Tracker adapter interface. */
 
-import type { Issue } from '../model.js';
+import type { Issue } from '../model.ts';
 
 export type TrackerAdapter = {
   readonly fetchCandidateIssues: () => Promise<readonly Issue[]>;

@@ -2,9 +2,9 @@
 
 import { watchFile } from 'node:fs';
 
-import type { EffectiveConfig } from '../model.js';
+import type { EffectiveConfig } from '../model.ts';
 
-import { loadConfig } from './loadConfig.js';
+import { loadConfig } from './loadConfig.ts';
 
 export type ReloadHandler = (newConfig: EffectiveConfig) => void;
 

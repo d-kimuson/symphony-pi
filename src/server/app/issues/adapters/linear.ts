@@ -1,7 +1,7 @@
 /** Linear issue-tracker adapter. */
 
-import type { LinearTrackerConfig } from '../../config/model.js';
-import type { Issue } from '../model.js';
+import type { LinearTrackerConfig } from '../../config/model.ts';
+import type { Issue } from '../model.ts';
 
 export type LinearApiError =
   | { readonly type: 'linear_api_request'; readonly message: string }

@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import type { TrackerAdapter } from '../adapters/trackerAdapter.js';
-import type { Issue } from '../model.js';
+import type { TrackerAdapter } from '../adapters/trackerAdapter.ts';
+import type { Issue } from '../model.ts';
 
 import {
   setTrackerAdapter,
   fetchIssues,
   fetchIssueStatesByIds,
   fetchIssuesByStates,
-} from './fetchIssues.js';
+} from './fetchIssues.ts';
 
 const makeAdapter = (behavior: 'success' | 'error' | 'null' = 'success'): TrackerAdapter => ({
   fetchCandidateIssues: async () => {

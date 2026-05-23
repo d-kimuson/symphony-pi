@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { EffectiveConfig } from '../../config/model.js';
-import type { Issue } from '../../issues/model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { Issue } from '../../issues/model.ts';
 
-import { runAgentSession, type AgentSessionHandle } from './runAgentSession.js';
+import { runAgentSession, type AgentSessionHandle } from './runAgentSession.ts';
 
 const testIssue: Issue = {
   id: 'i1',

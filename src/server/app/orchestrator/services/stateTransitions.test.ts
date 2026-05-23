@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { EffectiveConfig, LinearTrackerConfig } from '../../config/model.js';
-import type { Issue } from '../../issues/model.js';
-import type { RunningEntry } from '../model.js';
+import type { EffectiveConfig, LinearTrackerConfig } from '../../config/model.ts';
+import type { Issue } from '../../issues/model.ts';
+import type { RunningEntry } from '../model.ts';
 
 import {
   sortCandidatesByPriority,
@@ -12,7 +12,7 @@ import {
   createRetryEntry,
   isSessionStalled,
   determineReconciliationAction,
-} from './stateTransitions.js';
+} from './stateTransitions.ts';
 
 const trackerConfig: LinearTrackerConfig = {
   kind: 'linear',

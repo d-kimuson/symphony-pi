@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { startServer } from './server.js';
+import { startServer } from './server.ts';
 
 describe('startServer', () => {
   it('exports a function', () => {

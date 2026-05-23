@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AgentTotals, OrchestratorState, RetryEntry, RunningEntry } from './model.js';
+import type { AgentTotals, OrchestratorState, RetryEntry, RunningEntry } from './model.ts';
 
 describe('RetryEntry', () => {
   const entry: RetryEntry = {

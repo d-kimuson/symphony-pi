@@ -37,11 +37,11 @@ vi.mock('./workspaces/workflows/ensureWorkspace.js', () => ({
   runAfterRunHook: vi.fn().mockResolvedValue({ type: 'ok' }),
 }));
 
-import type { EffectiveConfig, TrackerConfig } from './config/model.js';
-import type { TrackerAdapter } from './issues/adapters/trackerAdapter.js';
+import type { EffectiveConfig, TrackerConfig } from './config/model.ts';
+import type { TrackerAdapter } from './issues/adapters/trackerAdapter.ts';
 
-import { bootstrap } from './bootstrap.js';
-import { loadConfig } from './config/workflows/loadConfig.js';
+import { bootstrap } from './bootstrap.ts';
+import { loadConfig } from './config/workflows/loadConfig.ts';
 
 const testConfig: EffectiveConfig = {
   tracker: {

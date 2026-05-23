@@ -1,6 +1,6 @@
 /** Domain types for the WORKFLOW.md loader. */
 
-import type { Issue } from '../issues/model.js';
+import type { Issue } from '../issues/model.ts';
 
 export type WorkflowDefinition = {
   readonly config: Record<string, unknown>;

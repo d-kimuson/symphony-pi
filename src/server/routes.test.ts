@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 
-import type { HonoContext } from './app.js';
+import type { HonoContext } from './app.ts';
 
-import { routes } from './routes.js';
+import { routes } from './routes.ts';
 
 describe('routes', () => {
   const makeApp = (): Hono<HonoContext> => new Hono<HonoContext>();

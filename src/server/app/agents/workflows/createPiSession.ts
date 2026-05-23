@@ -22,10 +22,10 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
 
-import type { EffectiveConfig } from '../../config/model.js';
-import type { AgentSessionHandle } from './runAgentSession.js';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { AgentSessionHandle } from './runAgentSession.ts';
 
-import { ticketGet, ticketComment, ticketTransition } from '../services/ticketTools.js';
+import { ticketGet, ticketComment, ticketTransition } from '../services/ticketTools.ts';
 
 export type PiCreateOptions = {
   readonly workspacePath: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { controllablePromise } from './controllablePromise.js';
+import { controllablePromise } from './controllablePromise.ts';
 
 describe('controllablePromise', () => {
   it('creates a pending controllable promise', () => {

@@ -1,11 +1,11 @@
 /** Side-effectful configuration loading/reloading entry point. */
 
-import type { EffectiveConfig } from '../model.js';
+import type { EffectiveConfig } from '../model.ts';
 
-import { getWorkflowDir } from '../../workflow/services/resolveWorkflowConfig.js';
-import { loadWorkflow } from '../../workflow/workflows/loadWorkflow.js';
-import { validateConfig } from '../schema.js';
-import { resolveEffectiveConfig } from '../services/resolveConfig.js';
+import { getWorkflowDir } from '../../workflow/services/resolveWorkflowConfig.ts';
+import { loadWorkflow } from '../../workflow/workflows/loadWorkflow.ts';
+import { validateConfig } from '../schema.ts';
+import { resolveEffectiveConfig } from '../services/resolveConfig.ts';
 
 export type ConfigLoadResult =
   | { readonly type: 'loaded'; readonly config: EffectiveConfig }

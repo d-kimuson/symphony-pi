@@ -1,8 +1,8 @@
 /** Side-effectful issue fetching and reconciliation workflows. */
 
-import type { EffectiveConfig } from '../../config/model.js';
-import type { TrackerAdapter } from '../adapters/trackerAdapter.js';
-import type { Issue } from '../model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
+import type { TrackerAdapter } from '../adapters/trackerAdapter.ts';
+import type { Issue } from '../model.ts';
 
 // Tracker adapter factory will be set during startup
 let trackerAdapter: TrackerAdapter | null = null;

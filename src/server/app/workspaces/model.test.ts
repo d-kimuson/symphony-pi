@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Workspace, WorkspaceHook } from './model.js';
+import type { Workspace, WorkspaceHook } from './model.ts';
 
 describe('Workspace', () => {
   const ws: Workspace = {

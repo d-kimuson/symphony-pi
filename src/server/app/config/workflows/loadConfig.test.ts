@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { loadConfig } from '../workflows/loadConfig.js';
+import { loadConfig } from '../workflows/loadConfig.ts';
 
 describe('loadConfig', () => {
   const makeWorkflowFile = (content: string): string => {

@@ -4,7 +4,7 @@ import {
   sanitizeWorkspaceKey,
   buildWorkspacePath,
   isWorkspacePathContained,
-} from './workspacePaths.js';
+} from './workspacePaths.ts';
 
 describe('sanitizeWorkspaceKey', () => {
   it('preserves alphanumeric, dots, underscores, and hyphens', () => {

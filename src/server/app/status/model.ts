@@ -1,6 +1,6 @@
 /** Read models for runtime status and operational debugging APIs. */
 
-import type { AgentTotals } from '../orchestrator/model.js';
+import type { AgentTotals } from '../orchestrator/model.ts';
 
 export type RunningRow = {
   readonly issue_id: string;

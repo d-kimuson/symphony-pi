@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import type { EffectiveConfig, LinearTrackerConfig } from './model.js';
+import type { EffectiveConfig, LinearTrackerConfig } from './model.ts';
 
-import { validateConfig } from './schema.js';
+import { validateConfig } from './schema.ts';
 
 const linearTracker: LinearTrackerConfig = {
   kind: 'linear',

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import YAML from 'yaml';
 
-import type { WorkflowDefinition, WorkflowLoadError } from '../model.js';
+import type { WorkflowDefinition, WorkflowLoadError } from '../model.ts';
 
 /**
  * Parse YAML front matter from a Markdown file.

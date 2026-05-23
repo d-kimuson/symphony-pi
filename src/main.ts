@@ -16,11 +16,11 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { createRealSessionHandle } from './server/app/agents/workflows/runAgentSession.js';
-import { bootstrap } from './server/app/bootstrap.js';
-import { createTrackerAdapter } from './server/app/issues/adapters/adapterFactory.js';
-import { setSessionHandleFactory } from './server/app/orchestrator/workflows/pollTick.js';
-import { parseCliArgs } from './server/cli.js';
+import { createRealSessionHandle } from './server/app/agents/workflows/runAgentSession.ts';
+import { bootstrap } from './server/app/bootstrap.ts';
+import { createTrackerAdapter } from './server/app/issues/adapters/adapterFactory.ts';
+import { setSessionHandleFactory } from './server/app/orchestrator/workflows/pollTick.ts';
+import { parseCliArgs } from './server/cli.ts';
 
 const args = parseCliArgs(process.argv);
 

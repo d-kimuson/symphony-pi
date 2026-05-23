@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { WorkflowDefinition, WorkflowLoadError } from './model.js';
+import type { WorkflowDefinition, WorkflowLoadError } from './model.ts';
 
 describe('WorkflowDefinition', () => {
   const def: WorkflowDefinition = {

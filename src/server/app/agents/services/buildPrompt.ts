@@ -7,8 +7,8 @@
 
 import { Liquid } from 'liquidjs';
 
-import type { Issue } from '../../issues/model.js';
-import type { PromptTemplateInput, RenderResult } from '../../workflow/model.js';
+import type { Issue } from '../../issues/model.ts';
+import type { PromptTemplateInput, RenderResult } from '../../workflow/model.ts';
 
 // Singleton engine instance — cached for performance
 let _engine: Liquid | null = null;

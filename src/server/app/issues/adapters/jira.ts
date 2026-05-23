@@ -1,7 +1,7 @@
 /** Jira issue-tracker adapter. */
 
-import type { JiraTrackerConfig } from '../../config/model.js';
-import type { Issue } from '../model.js';
+import type { JiraTrackerConfig } from '../../config/model.ts';
+import type { Issue } from '../model.ts';
 
 export type JiraApiError =
   | { readonly type: 'jira_api_request'; readonly message: string }

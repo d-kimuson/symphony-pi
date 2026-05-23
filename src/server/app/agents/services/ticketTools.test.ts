@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { EffectiveConfig } from '../../config/model.js';
+import type { EffectiveConfig } from '../../config/model.ts';
 
-import { ticketGet, ticketComment, ticketTransition } from './ticketTools.js';
+import { ticketGet, ticketComment, ticketTransition } from './ticketTools.ts';
 
 const linearConfig: EffectiveConfig = {
   tracker: {

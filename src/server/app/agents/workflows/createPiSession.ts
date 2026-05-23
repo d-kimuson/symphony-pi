@@ -2,8 +2,8 @@
  * Real pi-coding-agent SDK session creation.
  * Implements SPEC 10.1 session creation contract.
  *
- * Uses @earendil-works/pi-coding-agent SDK exports:
- *   - createAgentSession, defineTool for session lifecycle and tools
+ * Uses @earendil-works/pi-coding-agent SDK exports with proper types:
+ *   - createAgentSession, defineTool, CreateAgentSessionOptions
  *   - ModelRegistry, AuthStorage for model resolution
  *   - SessionManager for session persistence
  *   - TypeBox for ToolDefinition parameter schemas
@@ -14,6 +14,7 @@
 
 import {
   AuthStorage,
+  type CreateAgentSessionOptions,
   ModelRegistry,
   SessionManager,
   createAgentSession,
@@ -37,9 +38,28 @@ export type PiSessionResult =
   | { readonly type: 'error'; readonly error: string };
 
 /**
+ * Resolve a model string like "anthropic/claude-sonnet-4" into a Model object
+ * using the ModelRegistry. Returns undefined if not found.
+ */
+const resolveModel = (
+  modelString: string,
+  registry: ModelRegistry,
+): ReturnType<typeof registry.find> => {
+  const parts = modelString.split('/');
+  // Format: "provider/modelId" or just "modelId"
+  if (parts.length >= 2 && parts[0] !== undefined && parts[1] !== undefined) {
+    return registry.find(parts[0], parts[1]);
+  }
+  // Try across all models
+  for (const m of registry.getAll()) {
+    if (m.id === modelString) return m;
+  }
+  return undefined;
+};
+
+/**
  * Build ticket tool definitions for a specific issue session.
- * Each session gets its own closure with session-local config/identifier.
- * Uses defineTool + TypeBox for proper pi SDK integration.
+ * Uses defineTool + TypeBox for proper pi SDK integration (SPEC 10.5).
  */
 const buildTicketToolDefs = (config: EffectiveConfig, issueIdentifier: string) => {
   const ticketGetTool = defineTool({
@@ -100,54 +120,47 @@ const buildTicketToolDefs = (config: EffectiveConfig, issueIdentifier: string) =
 
 /**
  * Create a real pi-coding-agent SDK session as an AgentSessionHandle.
- *
- * SPEC 10.1 compliance:
- * - Passes cwd = workspacePath
- * - Creates AuthStorage + ModelRegistry for model resolution
- * - Passes pi.thinking as thinkingLevel
- * - Creates SessionManager for session persistence (pi.session_dir)
- * - Registers ticket tools as customTools via defineTool + TypeBox
- * - Passes pi.tools + ticket tools as tool allowlist
- * - Provides abort() that calls session.abort() for reconciliation
- * - Returns PiSessionResult.error on SDK failure — NO mock fallback
  */
 export const createPiSessionHandle = async (options: PiCreateOptions): Promise<PiSessionResult> => {
   const { workspacePath, config, issueIdentifier } = options;
 
   try {
-    // Build ticket tool definitions with session-local closure (SPEC 10.5)
-    const customTools = buildTicketToolDefs(config, issueIdentifier);
-
-    // Tool allowlist: configured pi.tools + ticket tools
-    const toolNames = [...config.pi.tools, 'ticket_get', 'ticket_comment', 'ticket_transition'];
-
-    // Create AuthStorage for model API key resolution
+    // Auth + Model resolution
     const authStorage = AuthStorage.create();
-
-    // Create ModelRegistry for model discovery and resolution
     const modelRegistry = ModelRegistry.create(authStorage);
 
-    // Build session options matching CreateAgentSessionOptions shape
-    const sessionOpts: Record<string, unknown> = {
+    // Build session options with proper CreateAgentSessionOptions shape
+    const sessionOpts: CreateAgentSessionOptions = {
       cwd: workspacePath,
-      customTools,
-      tools: toolNames,
       authStorage,
       modelRegistry,
+      customTools: buildTicketToolDefs(config, issueIdentifier),
+      tools: [...config.pi.tools, 'ticket_get', 'ticket_comment', 'ticket_transition'],
     };
 
+    // Model resolution: convert string ID to Model object via ModelRegistry (SPEC 10.1)
+    if (config.pi.model !== null) {
+      const resolved = resolveModel(config.pi.model, modelRegistry);
+      if (resolved === undefined) {
+        return {
+          type: 'error',
+          error: `Model not found: "${config.pi.model}". Check models.json or pi.model config.`,
+        };
+      }
+      sessionOpts.model = resolved;
+    }
+
     if (config.pi.thinking !== null) {
-      sessionOpts['thinkingLevel'] = config.pi.thinking;
+      sessionOpts.thinkingLevel = config.pi.thinking as CreateAgentSessionOptions['thinkingLevel'];
     }
 
-    // Session persistence: create SessionManager if session_dir is configured (SPEC 10.1)
+    // Session persistence via SessionManager (SPEC 10.1)
     if (config.pi.session_dir !== null) {
-      sessionOpts['sessionManager'] = SessionManager.create(workspacePath, config.pi.session_dir);
+      sessionOpts.sessionManager = SessionManager.create(workspacePath, config.pi.session_dir);
     }
 
-    // Create session via SDK convenience API
+    // Create session via SDK
     const result = await createAgentSession(sessionOpts);
-
     const session = result.session;
 
     return {

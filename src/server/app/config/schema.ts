@@ -58,6 +58,12 @@ const configSchema = v.object({
     port: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65535)),
     host: v.pipe(v.string(), v.nonEmpty()),
   }),
+  workflow: v.optional(
+    v.object({
+      path: v.pipe(v.string(), v.nonEmpty()),
+      dir: v.pipe(v.string(), v.nonEmpty()),
+    }),
+  ),
   prompt_template: v.optional(v.nullable(v.string())),
 });
 

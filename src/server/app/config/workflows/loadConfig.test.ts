@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { loadConfig } from '../workflows/loadConfig.ts';
@@ -47,6 +47,10 @@ describe('loadConfig', () => {
       expect(result.type).toBe('loaded');
       if (result.type !== 'loaded') throw new Error('expected loaded');
       expect(result.config.tracker.kind).toBe('linear');
+      expect(result.config.workflow).toEqual({
+        path: filePath,
+        dir: dirname(filePath),
+      });
     } finally {
       try {
         unlinkSync(filePath);

@@ -59,6 +59,29 @@ Set the required environment variable:
 export LINEAR_API_KEY=your-linear-api-key
 ```
 
+For a repository-backed workspace, configure `hooks.after_create` to attach a git worktree from the repo that owns `WORKFLOW.md`:
+
+```yaml
+hooks:
+  after_create: |
+    set -eu
+
+    repo_root="$SYMPHONY_WORKFLOW_DIR"
+    branch_name="feature/$(printf '%s' "$SYMPHONY_WORKSPACE_KEY" | tr '[:upper:]' '[:lower:]')"
+
+    git -C "$repo_root" fetch origin main
+    git -C "$repo_root" worktree add -B "$branch_name" "$SYMPHONY_WORKSPACE_PATH" origin/main
+```
+
+Hook processes run with these helper environment variables:
+
+- `SYMPHONY_WORKFLOW_PATH`
+- `SYMPHONY_WORKFLOW_DIR`
+- `SYMPHONY_WORKSPACE_PATH`
+- `SYMPHONY_WORKSPACE_KEY`
+
+`pi.tools` is optional. If you omit it (or set it to `[]`), Symphony leaves pi's default tool set unrestricted and still adds the required ticket tools. Configure `pi.tools` only when you want an explicit allowlist.
+
 For the tracker schema reference, see the [Workflow Specification](./WORKFLOW.md) and [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Running
@@ -81,12 +104,12 @@ The dashboard is served at `http://127.0.0.1:<port>` (default preferred port: `4
 
 ## API Endpoints
 
-| Method | Path                     | Description                |
-| ------ | ------------------------ | -------------------------- |
-| GET    | `/`                      | Dashboard UI               |
-| GET    | `/api/v1/state`          | Runtime snapshot (JSON)    |
-| GET    | `/api/v1/:identifier`    | Per-issue details (JSON)   |
-| POST   | `/api/v1/refresh`        | Trigger immediate poll     |
+| Method | Path                  | Description              |
+| ------ | --------------------- | ------------------------ |
+| GET    | `/`                   | Dashboard UI             |
+| GET    | `/api/v1/state`       | Runtime snapshot (JSON)  |
+| GET    | `/api/v1/:identifier` | Per-issue details (JSON) |
+| POST   | `/api/v1/refresh`     | Trigger immediate poll   |
 
 ## Project Structure
 
@@ -115,18 +138,18 @@ src/
 
 ## Commands
 
-| Command                | Description                        |
-| ---------------------- | ---------------------------------- |
+| Command                | Description                          |
+| ---------------------- | ------------------------------------ |
 | `pnpm dev`             | Start server + dashboard in parallel |
-| `pnpm dev:server`      | Start server only (with watch)     |
-| `pnpm dev:web`         | Start dashboard dev server only    |
-| `pnpm build:web`       | Build dashboard for production     |
-| `pnpm typecheck`       | TypeScript type checking           |
-| `pnpm test`            | Run test suite (vitest)            |
-| `pnpm test:coverage`   | Run tests with coverage report     |
-| `pnpm lint`            | Run oxlint + oxfmt check           |
-| `pnpm fix`             | Auto-fix lint/format issues        |
-| `pnpm gatecheck check` | Run all quality gates              |
+| `pnpm dev:server`      | Start server only (with watch)       |
+| `pnpm dev:web`         | Start dashboard dev server only      |
+| `pnpm build:web`       | Build dashboard for production       |
+| `pnpm typecheck`       | TypeScript type checking             |
+| `pnpm test`            | Run test suite (vitest)              |
+| `pnpm test:coverage`   | Run tests with coverage report       |
+| `pnpm lint`            | Run oxlint + oxfmt check             |
+| `pnpm fix`             | Auto-fix lint/format issues          |
+| `pnpm gatecheck check` | Run all quality gates                |
 
 ## Documentation
 

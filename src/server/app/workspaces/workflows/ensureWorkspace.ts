@@ -1,6 +1,7 @@
 /** Side-effectful workspace creation, cleanup, and lifecycle-hook workflows. */
 
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { basename } from 'node:path';
 
 import type { EffectiveConfig } from '../../config/model.ts';
 import type { Workspace } from '../model.ts';
@@ -29,18 +30,39 @@ export type HookResult =
  * Run a workspace hook script if configured.
  * Executes in the workspace directory as cwd with timeout from config.
  */
+const buildHookEnv = (workspacePath: string, config: EffectiveConfig): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    SYMPHONY_WORKSPACE_PATH: workspacePath,
+    SYMPHONY_WORKSPACE_KEY: basename(workspacePath),
+  };
+
+  if (config.workflow !== undefined) {
+    env['SYMPHONY_WORKFLOW_PATH'] = config.workflow.path;
+    env['SYMPHONY_WORKFLOW_DIR'] = config.workflow.dir;
+  }
+
+  return env;
+};
+
 const runHook = async (
   hookScript: string | null,
   workspacePath: string,
   timeoutMs: number,
   hookName: string,
+  config: EffectiveConfig,
 ): Promise<HookResult> => {
   if (hookScript === null || hookScript.trim().length === 0) {
     return { type: 'success', stdout: '' };
   }
 
   try {
-    const result = await execShellScript(hookScript, workspacePath, timeoutMs);
+    const result = await execShellScript(
+      hookScript,
+      workspacePath,
+      timeoutMs,
+      buildHookEnv(workspacePath, config),
+    );
     if (result.exitCode === 0) {
       return { type: 'success', stdout: result.stdout };
     }
@@ -99,6 +121,7 @@ export const runAfterCreateHook = async (
     workspace.path,
     config.hooks.timeout_ms,
     'after_create',
+    config,
   );
   return result;
 };
@@ -116,6 +139,7 @@ export const runBeforeRunHook = async (
     workspacePath,
     config.hooks.timeout_ms,
     'before_run',
+    config,
   );
   return result;
 };
@@ -133,6 +157,7 @@ export const runAfterRunHook = async (
     workspacePath,
     config.hooks.timeout_ms,
     'after_run',
+    config,
   );
   return result;
 };
@@ -150,6 +175,7 @@ export const runBeforeRemoveHook = async (
     workspacePath,
     config.hooks.timeout_ms,
     'before_remove',
+    config,
   );
   return result;
 };

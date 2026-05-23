@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 context.md
 progress.md
 false
+
+# docs
+docs/tmp

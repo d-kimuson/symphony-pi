@@ -21,6 +21,7 @@ export const execShellScript = async (
   script: string,
   cwd: string,
   timeoutMs: number,
+  env?: NodeJS.ProcessEnv,
 ): Promise<ExecResult> => {
   try {
     const result = await execaCommand(script, {
@@ -28,6 +29,7 @@ export const execShellScript = async (
       cwd,
       timeout: timeoutMs,
       reject: false,
+      env,
     });
 
     return {

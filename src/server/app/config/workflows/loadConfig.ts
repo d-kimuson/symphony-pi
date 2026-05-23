@@ -1,5 +1,7 @@
 /** Side-effectful configuration loading/reloading entry point. */
 
+import { resolve } from 'node:path';
+
 import type { EffectiveConfig } from '../model.ts';
 
 import { getWorkflowDir } from '../../workflow/services/resolveWorkflowConfig.ts';
@@ -23,7 +25,13 @@ export const loadConfig = (workflowPath: string): ConfigLoadResult => {
   }
 
   const workflowDir = getWorkflowDir(workflowPath);
-  const config = resolveEffectiveConfig(workflow, workflowDir);
+  const config: EffectiveConfig = {
+    ...resolveEffectiveConfig(workflow, workflowDir),
+    workflow: {
+      path: resolve(workflowPath),
+      dir: workflowDir,
+    },
+  };
 
   const validationErrors = validateConfig(config);
   if (validationErrors.length > 0) {

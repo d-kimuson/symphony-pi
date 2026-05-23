@@ -135,8 +135,14 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
       authStorage,
       modelRegistry,
       customTools: buildTicketToolDefs(config, issueIdentifier),
-      tools: [...config.pi.tools, 'ticket_get', 'ticket_comment', 'ticket_transition'],
     };
+
+    // Tool allowlist: only restrict if pi.tools is explicitly configured with items.
+    // Empty array = no restriction (SDK uses all default tools).
+    // Ticket tools are customTools, always available regardless.
+    if (config.pi.tools.length > 0) {
+      sessionOpts.tools = [...config.pi.tools, 'ticket_get', 'ticket_comment', 'ticket_transition'];
+    }
 
     // Model resolution: convert string ID to Model object via ModelRegistry (SPEC 10.1)
     if (config.pi.model !== null) {

@@ -150,6 +150,32 @@ describe('workspace hooks', () => {
     expect(result.type).toBe('success');
   });
 
+  it('runAfterCreateHook: passes workflow and workspace context to the hook environment', async () => {
+    mockExec.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+    const config: EffectiveConfig = {
+      ...baseConfig,
+      workflow: {
+        path: '/repo/WORKFLOW.md',
+        dir: '/repo',
+      },
+      hooks: { ...baseConfig.hooks, after_create: 'echo test' },
+    };
+
+    const result = await runAfterCreateHook(
+      { path: '/ws/TEST-1', workspace_key: 'TEST-1', created_now: true },
+      config,
+    );
+
+    expect(result.type).toBe('success');
+    expect(mockExec).toHaveBeenCalledWith('echo test', '/ws/TEST-1', 60000, {
+      ...process.env,
+      SYMPHONY_WORKFLOW_DIR: '/repo',
+      SYMPHONY_WORKFLOW_PATH: '/repo/WORKFLOW.md',
+      SYMPHONY_WORKSPACE_KEY: 'TEST-1',
+      SYMPHONY_WORKSPACE_PATH: '/ws/TEST-1',
+    });
+  });
+
   it('runAfterCreateHook: returns failure when hook fails', async () => {
     mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
     const config = { ...baseConfig, hooks: { ...baseConfig.hooks, after_create: 'echo test' } };

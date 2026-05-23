@@ -27,7 +27,7 @@ describe('resolveEffectiveConfig', () => {
     expect(config.tracker.project_slug).toBe('my-project');
     expect(config.polling.interval_ms).toBe(60000);
     expect(config.agent.max_concurrent_agents).toBe(10);
-    expect(config.pi.tools).toEqual(['read', 'bash', 'edit', 'write']);
+    expect(config.pi.tools).toEqual([]);
     expect(config.server.port).toBe(48484);
   });
 

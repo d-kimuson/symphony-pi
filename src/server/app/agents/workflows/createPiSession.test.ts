@@ -117,6 +117,35 @@ describe('createPiSessionHandle', () => {
     expect(result.handle.sessionId).toBe('test-session-id');
   });
 
+  it('omits tools when pi.tools is empty so pi defaults stay unrestricted', async () => {
+    const result = await createPiSessionHandle({
+      workspacePath: '/tmp/ws',
+      config: { ...testConfig, pi: { ...testConfig.pi, model: null, tools: [] } },
+      issueIdentifier: 'TEST-1',
+    });
+
+    expect(result.type).toBe('created');
+    expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
+    const sessionOpts = mockCreateAgentSession.mock.calls[0]?.[0];
+    expect(sessionOpts).toBeDefined();
+    expect(sessionOpts).not.toHaveProperty('tools');
+  });
+
+  it('adds ticket tools when pi.tools allowlist is configured', async () => {
+    const result = await createPiSessionHandle({
+      workspacePath: '/tmp/ws',
+      config: { ...testConfig, pi: { ...testConfig.pi, model: null, tools: ['read', 'bash'] } },
+      issueIdentifier: 'TEST-1',
+    });
+
+    expect(result.type).toBe('created');
+    expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
+    const sessionOpts = mockCreateAgentSession.mock.calls[0]?.[0];
+    expect(sessionOpts).toMatchObject({
+      tools: ['read', 'bash', 'ticket_get', 'ticket_comment', 'ticket_transition'],
+    });
+  });
+
   it('returns error when model not found', async () => {
     // eslint-disable-next-line typescript/unbound-method -- vi mocking pattern
     vi.mocked(ModelRegistry.create).mockReturnValue({

@@ -88,7 +88,7 @@ export const resolveEffectiveConfig = (
     pi: {
       model: ensureStringOrNull(piSection['model']),
       thinking: ensureStringOrNull(piSection['thinking']),
-      tools: ensureStringArray(piSection['tools']) ?? ['read', 'bash', 'edit', 'write'],
+      tools: ensureStringArray(piSection['tools']) ?? [],
       session_dir: ensureStringOrNull(piSection['session_dir']),
       turn_timeout_ms: ensurePositiveInt(piSection['turn_timeout_ms']) ?? 3600000,
       stall_timeout_ms: ensureInt(piSection['stall_timeout_ms']) ?? 300000,

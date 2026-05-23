@@ -61,6 +61,10 @@ export type EffectiveConfig = {
     readonly port: number;
     readonly host: string;
   };
+  readonly workflow?: {
+    readonly path: string;
+    readonly dir: string;
+  };
   /** Rendered prompt template from WORKFLOW.md */
   readonly prompt_template?: string | null;
 };

@@ -461,8 +461,9 @@ Fields:
 - `thinking` (string or null)
   - Default: null. When null, pi uses its configured default thinking level.
 - `tools` (list of strings)
-  - Default: `read`, `bash`, `edit`, `write`.
-  - Names of pi built-in/custom tools enabled for the session.
+  - Default: empty list.
+  - When empty, Symphony does not pass a tool allowlist to pi, so pi keeps its default tool set.
+  - When non-empty, names of pi built-in/custom tools enabled for the session as an explicit allowlist.
 - `session_dir` (path string or `$VAR`)
   - Default: implementation-managed pi session storage for the workspace.
 - `turn_timeout_ms` (integer)
@@ -630,7 +631,7 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `agent.max_concurrent_agents_by_state`: map of positive integers, default `{}`
 - `pi.model`: string or null, default null
 - `pi.thinking`: string or null, default null
-- `pi.tools`: list of pi tools, default `["read", "bash", "edit", "write"]`
+- `pi.tools`: list of pi tools, default `[]` (empty means Symphony does not restrict pi's default tool set)
 - `pi.session_dir`: path resolved to absolute when configured
 - `pi.turn_timeout_ms`: integer, default `3600000`
 - `pi.stall_timeout_ms`: integer, default `300000`
@@ -915,6 +916,11 @@ Execution contract:
 - On POSIX systems, `sh -lc <script>` (or a stricter equivalent such as `bash -lc <script>`) is a
   conforming default.
 - Hook timeout uses `hooks.timeout_ms`; default: `60000 ms`.
+- Hook environment includes:
+  - `SYMPHONY_WORKFLOW_PATH`
+  - `SYMPHONY_WORKFLOW_DIR`
+  - `SYMPHONY_WORKSPACE_PATH`
+  - `SYMPHONY_WORKSPACE_KEY`
 - Log hook start, failures, and timeouts.
 
 Failure semantics:
@@ -976,7 +982,8 @@ Requirements:
 - Run each worker turn with `session.prompt(prompt)`.
 - Continuation prompts reuse the same pi session inside one worker lifetime and send continuation
   guidance rather than the original full issue prompt.
-- The runner enables only the pi tools configured by `pi.tools` plus service-defined ticket tools.
+- When `pi.tools` is non-empty, the runner enables only that explicit pi tool allowlist plus service-defined ticket tools.
+- When `pi.tools` is empty, Symphony does not pass a pi tool allowlist and pi keeps its default tool set plus service-defined ticket tools.
 - Dispose the session when the worker run ends.
 
 ### 10.2 Session Identifiers
@@ -2000,7 +2007,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - `pi.turn_timeout_ms` is enforced
 - User input / extension UI requests are handled according to the implementation's documented policy and do not stall indefinitely
 - Usage and rate-limit telemetry exposed by pi is extracted
-- Configured `pi.tools` controls the enabled pi tool allowlist
+- Configured non-empty `pi.tools` controls the enabled pi tool allowlist; empty `pi.tools` leaves pi's default tool set unrestricted
 - Required ticket tools (`ticket_get`, `ticket_comment`, `ticket_transition`) are available for both Linear and Jira and scoped to the active ticket/tracker config
 - Unsupported tool names fail without stalling the session
 

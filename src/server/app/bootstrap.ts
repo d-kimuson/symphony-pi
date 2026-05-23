@@ -139,7 +139,7 @@ export const bootstrap = async (
     const terminalIssues = await fetchIssuesByStates(config, config.tracker.terminal_states);
     if (terminalIssues !== null) {
       const { sanitizeWorkspaceKey, buildWorkspacePath } =
-        await import('./workspaces/services/workspacePaths.js');
+        await import('./workspaces/services/workspacePaths.ts');
       let removedCount = 0;
       for (const issue of terminalIssues) {
         const wsKey = sanitizeWorkspaceKey(issue.identifier);

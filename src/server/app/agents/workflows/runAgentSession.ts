@@ -284,7 +284,7 @@ export const createRealSessionHandle = async (
   config: EffectiveConfig,
   issueIdentifier: string,
 ): Promise<AgentSessionHandle> => {
-  const { createPiSessionHandle } = await import('./createPiSession.js');
+  const { createPiSessionHandle } = await import('./createPiSession.ts');
   const result = await createPiSessionHandle({ workspacePath, config, issueIdentifier });
   if (result.type === 'error') {
     throw new Error(result.error);

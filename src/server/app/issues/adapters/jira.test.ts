@@ -50,6 +50,7 @@ describe('fetchJiraCandidateIssues', () => {
   it('builds JQL from project_key', async () => {
     mockFetch.mockResolvedValueOnce(makeJiraSearchResponse([makeJiraIssue()]));
     const result = await fetchJiraCandidateIssues(testConfig);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) {
       expect(result.length).toBe(1);
       expect(result[0]?.identifier).toBe('TEST-1');
@@ -66,6 +67,7 @@ describe('fetchJiraCandidateIssues', () => {
       makeJiraSearchResponse([makeJiraIssue({ priority: { name: 'Low' } })]),
     );
     const result = await fetchJiraCandidateIssues(testConfig);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result) && result[0]) expect(result[0].priority).toBe(4);
   });
 
@@ -89,6 +91,7 @@ describe('fetchJiraCandidateIssues', () => {
       }),
     } as Response);
     const result = await fetchJiraCandidateIssues(testConfig);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(2);
   });
 
@@ -110,6 +113,7 @@ describe('fetchJiraCandidateIssues', () => {
 describe('fetchJiraIssuesByStates', () => {
   it('returns empty for empty states', async () => {
     const result = await fetchJiraIssuesByStates(testConfig, []);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(0);
   });
 
@@ -126,6 +130,7 @@ describe('fetchJiraIssuesByStates', () => {
 describe('fetchJiraIssueStatesByIds', () => {
   it('returns empty for empty ids', async () => {
     const result = await fetchJiraIssueStatesByIds(testConfig, []);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(0);
   });
 

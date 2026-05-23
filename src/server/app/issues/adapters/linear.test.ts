@@ -56,6 +56,7 @@ describe('fetchLinearCandidateIssues', () => {
     mockFetch.mockResolvedValueOnce(makeGraphqlResponse([makeIssueNode()], false, null));
     const result = await fetchLinearCandidateIssues(testConfig);
     expect(Array.isArray(result)).toBe(true);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) {
       expect(result.length).toBe(1);
       expect(result[0]?.identifier).toBe('TEST-1');
@@ -71,6 +72,7 @@ describe('fetchLinearCandidateIssues', () => {
       ]),
     );
     const result = await fetchLinearCandidateIssues(testConfig);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result) && result[0]) {
       expect(result[0].labels).toContain('bug');
       expect(result[0].labels).toContain('frontend');
@@ -86,6 +88,7 @@ describe('fetchLinearCandidateIssues', () => {
       ]),
     );
     const result = await fetchLinearCandidateIssues(testConfig);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result) && result[0]) {
       expect(result[0].blocked_by.length).toBe(1);
       expect(result[0].blocked_by[0]?.identifier).toBe('BLK-1');
@@ -101,6 +104,7 @@ describe('fetchLinearCandidateIssues', () => {
       makeGraphqlResponse([makeIssueNode({ id: 'b', identifier: 'B-1' })], false, null),
     );
     const result = await fetchLinearCandidateIssues(testConfig);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(2);
   });
 
@@ -136,6 +140,7 @@ describe('fetchLinearCandidateIssues', () => {
 describe('fetchLinearIssuesByStates', () => {
   it('returns empty for empty states', async () => {
     const result = await fetchLinearIssuesByStates(testConfig, []);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(0);
   });
 });
@@ -143,6 +148,7 @@ describe('fetchLinearIssuesByStates', () => {
 describe('fetchLinearIssueStatesByIds', () => {
   it('returns empty for empty ids', async () => {
     const result = await fetchLinearIssueStatesByIds(testConfig, []);
+    expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result)) expect(result.length).toBe(0);
   });
 });

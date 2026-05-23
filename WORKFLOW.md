@@ -2,8 +2,8 @@
 tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
-  team_key: $LINEAR_TEAM_KEY
-  project_slug: symphony-pi
+  team_key: ENG
+  project_slug: 7e362ffb48eb
   active_states:
     - Todo
     - In Progress

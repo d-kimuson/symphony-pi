@@ -44,6 +44,7 @@ export const runAgentSession = async (
   config: EffectiveConfig,
   onEvent: (event: AgentRunnerEvent) => void,
   checkState?: StateChecker,
+  signal?: AbortSignal,
 ): Promise<AgentRunResult> => {
   const threadId = sessionHandle.sessionId;
   let turnCount = 0;
@@ -64,6 +65,11 @@ export const runAgentSession = async (
 
   try {
     while (turnCount < config.agent.max_turns) {
+      // Check external abort signal (from reconciliation)
+      if (signal !== undefined && signal.aborted) {
+        return { status: 'cancelled', turns: turnCount, error: 'Cancelled by reconciliation' };
+      }
+
       turnCount++;
 
       const turnId = `turn-${turnCount}`;

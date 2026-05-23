@@ -30,7 +30,7 @@ import {
   setWorkflowPromptTemplate,
   setSessionHandleFactory,
 } from './orchestrator/workflows/pollTick.js';
-import { setOrchestratorState } from './status/routes.js';
+import { setOrchestratorState, setRefreshTrigger } from './status/routes.js';
 import { removeWorkspace } from './workspaces/workflows/ensureWorkspace.js';
 
 // --- Public bootstrap API ---
@@ -160,6 +160,14 @@ export const bootstrap = async (
 
   // --- Phase 6: Poll loop ---
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let currentTick: (() => Promise<void>) | null = null;
+
+  // Wire refresh trigger (SPEC 13.7.2: POST /api/v1/refresh)
+  setRefreshTrigger(() => {
+    if (currentTick !== null) {
+      void currentTick();
+    }
+  });
 
   const startPollLoop = (cfg: EffectiveConfig) => {
     if (pollTimer !== null) clearInterval(pollTimer);
@@ -189,6 +197,8 @@ export const bootstrap = async (
         await handleRetryFire(state, issueId, cfg);
       }
     };
+
+    currentTick = tick;
 
     // Run immediate tick
     void tick();

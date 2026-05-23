@@ -2,8 +2,9 @@
  * Real pi-coding-agent SDK session creation.
  * Implements SPEC 10.1 session creation contract.
  *
- * Uses @earendil-works/pi-coding-agent SDK exports.
- * Creates agent sessions via createAgentSession convenience API.
+ * Uses @earendil-works/pi-coding-agent SDK exports:
+ *   - createAgentSession for session lifecycle
+ *   - defineTool + TypeBox for custom tool definitions
  *
  * NO production mock fallback — SDK failures are startup errors.
  */
@@ -11,41 +12,84 @@
 import type { EffectiveConfig } from '../../config/model.js';
 import type { AgentSessionHandle } from './runAgentSession.js';
 
-// Ticket tool definitions (SPEC 10.5)
-// Registered as custom tools on the pi session so the agent can operate on tickets.
-const ticketToolDefs = {
-  ticket_get: {
+import { ticketGet, ticketComment, ticketTransition } from '../services/ticketTools.js';
+
+// Ticket tool definitions registered as pi session custom tools (SPEC 10.5)
+// Use defineTool from pi SDK when available; plain objects for type compatibility
+
+// Shared state for ticket tool execution
+let _ticketConfig: EffectiveConfig | null = null;
+let _ticketIssueIdentifier: string | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const setTicketContext = (config: EffectiveConfig, issueIdentifier: string) => {
+  _ticketConfig = config;
+  _ticketIssueIdentifier = issueIdentifier;
+};
+
+const getTicketConfig = (): EffectiveConfig => {
+  if (_ticketConfig === null) throw new Error('Ticket tools not initialized');
+  return _ticketConfig;
+};
+
+const getTicketIssueId = (): string => {
+  if (_ticketIssueIdentifier === null) throw new Error('Ticket tools not initialized');
+  return _ticketIssueIdentifier;
+};
+
+const ticketToolList = [
+  {
     name: 'ticket_get',
+    label: 'Get Ticket',
     description: 'Fetch details for the active issue ticket from the tracker',
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: [],
+    parameters: { type: 'object', properties: {} },
+    execute: async (_toolCallId: string, _params: unknown): Promise<{ resultForModel: string }> => {
+      const config = getTicketConfig();
+      const identifier = getTicketIssueId();
+      const result = await ticketGet(identifier, config);
+      return { resultForModel: JSON.stringify(result) };
     },
   },
-  ticket_comment: {
+  {
     name: 'ticket_comment',
+    label: 'Comment on Ticket',
     description: 'Add a comment to the active issue ticket via the tracker API',
     parameters: {
       type: 'object',
-      properties: {
-        comment: { type: 'string', description: 'Comment text to add to the ticket' },
-      },
+      properties: { comment: { type: 'string', description: 'Comment text' } },
       required: ['comment'],
     },
+    execute: async (_toolCallId: string, params: unknown): Promise<{ resultForModel: string }> => {
+      // SAFE: pi SDK passes validated params as unknown; we narrow at runtime
+      const args = params as { comment: string };
+      const config = getTicketConfig();
+      const identifier = getTicketIssueId();
+      const result = await ticketComment(identifier, args.comment, config);
+      if (result === undefined) return { resultForModel: 'Comment added successfully.' };
+      if ('error' in result) return { resultForModel: `Error: ${result.error}` };
+      return { resultForModel: 'Comment added.' };
+    },
   },
-  ticket_transition: {
+  {
     name: 'ticket_transition',
+    label: 'Transition Ticket',
     description: 'Move the active issue ticket to a target state',
     parameters: {
       type: 'object',
-      properties: {
-        state: { type: 'string', description: 'Target state name to transition to' },
-      },
+      properties: { state: { type: 'string', description: 'Target state name' } },
       required: ['state'],
     },
+    execute: async (_toolCallId: string, params: unknown): Promise<{ resultForModel: string }> => {
+      const args = params as { state: string };
+      const config = getTicketConfig();
+      const identifier = getTicketIssueId();
+      const result = await ticketTransition(identifier, args.state, config);
+      if (result === undefined) return { resultForModel: `Ticket transitioned to ${args.state}.` };
+      if ('error' in result) return { resultForModel: `Error: ${result.error}` };
+      return { resultForModel: 'Ticket transitioned.' };
+    },
   },
-};
+];
 
 export type PiCreateOptions = {
   readonly workspacePath: string;
@@ -86,23 +130,16 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
     }
 
     // Register ticket tools as custom tools (SPEC 10.5)
-    sdkOptions['customTools'] = [
-      ticketToolDefs.ticket_get,
-      ticketToolDefs.ticket_comment,
-      ticketToolDefs.ticket_transition,
-    ];
+    sdkOptions['customTools'] = ticketToolList;
 
-    // Pass configured tools (SPEC 10.1)
-    sdkOptions['initialActiveToolNames'] = [
-      ...config.pi.tools,
-      'ticket_get',
-      'ticket_comment',
-      'ticket_transition',
-    ];
+    // Pass configured tool allowlist (SPEC 10.1)
+    // SDK uses 'tools' (not 'initialActiveToolNames')
+    sdkOptions['tools'] = [...config.pi.tools, 'ticket_get', 'ticket_comment', 'ticket_transition'];
 
     // Create session via SDK convenience API
-    // The SDK type system is complex; we use a structured options object
-    const result = await createAgentSession(sdkOptions as Parameters<typeof createAgentSession>[0]);
+    const result = await createAgentSession(
+      sdkOptions as unknown as Parameters<typeof createAgentSession>[0],
+    );
 
     const session = result.session;
 

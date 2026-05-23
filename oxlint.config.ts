@@ -261,6 +261,13 @@ export default defineConfig({
       },
     },
     {
+      files: ['src/server/app/agents/workflows/createPiSession.ts'],
+      rules: {
+        // pi SDK integration — tool parameter narrowing and SDK option casting
+        'typescript/no-unsafe-type-assertion': 'off',
+      },
+    },
+    {
       files: ['**/*.{test,spec}.?([mc])[jt]s?(x)'],
       rules: {
         'jest/no-conditional-expect': 'error', // 条件分岐内での expect を禁止

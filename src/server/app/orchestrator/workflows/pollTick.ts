@@ -16,6 +16,7 @@ import {
   runAfterCreateHook,
   runBeforeRunHook,
   runAfterRunHook,
+  removeWorkspace,
 } from '../../workspaces/workflows/ensureWorkspace.js';
 import {
   sortCandidatesByPriority,
@@ -134,7 +135,11 @@ const reconcileRunningIssues = async (
         state.running.delete(issue.id);
         state.claimed.delete(issue.id);
         state.completed.add(issue.id);
-        // Workspace cleanup is handled by orchestrator caller
+        // Actually clean the workspace (SPEC 8.5, 8.6)
+        void removeWorkspace(entry.workspace_path, config).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[symphony] Workspace cleanup failed for ${issue.id}: ${msg}`);
+        });
         break;
       }
       case 'keep_running':
@@ -303,6 +308,7 @@ const runDispatchWorker = async (
       config,
       onEvent,
       checkState,
+      signal,
     );
 
     // Run after_run hook (SPEC 9.4 — failure logged but ignored)

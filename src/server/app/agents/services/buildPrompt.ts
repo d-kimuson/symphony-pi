@@ -1,42 +1,77 @@
-/** Pure prompt rendering and agent option construction helpers. */
+/**
+ * Pure prompt rendering and agent option construction helpers.
+ *
+ * Uses liquidjs for Liquid-compatible template rendering (SPEC 12.2).
+ * Strict mode: unknown variables/filters throw errors.
+ */
+
+import { Liquid } from 'liquidjs';
 
 import type { Issue } from '../../issues/model.js';
 import type { PromptTemplateInput, RenderResult } from '../../workflow/model.js';
 
+// Singleton engine instance — cached for performance
+let _engine: Liquid | null = null;
+
+const getEngine = (): Liquid => {
+  _engine ??= new Liquid({
+    strictVariables: true,
+    strictFilters: true,
+  });
+  return _engine;
+};
+
 /**
- * Render a Liquid-compatible template with strict variable checking.
- * Supports {{ variable }} and {{ variable | filter }} syntax.
+ * Render a Liquid template with strict variable checking.
  *
- * Supported filters:
- * - prepend: prepends a string
- * - append: appends a string
- * - default: provides a fallback value
- * - upcase: uppercase
- * - downcase: lowercase
+ * Template variables:
+ *   - issue: all normalized Issue fields (including labels, blockers)
+ *   - attempt: integer or null (retry/continuation metadata)
+ *
+ * Supports Liquid syntax including:
+ *   - {{ variable }}
+ *   - {{ variable | filter }}
+ *   - {% if condition %} ... {% endif %}
+ *   - {% for item in array %} ... {% endfor %}
  */
 export const renderPrompt = (template: string, input: PromptTemplateInput): RenderResult => {
-  const variables: Record<string, unknown> = {
-    issue: input.issue,
-    attempt: input.attempt,
+  const engine = getEngine();
+
+  // Convert Issue to plain object for Liquid access
+  const issueObj: Record<string, unknown> = {
+    id: input.issue.id,
+    identifier: input.issue.identifier,
+    title: input.issue.title,
+    description: input.issue.description,
+    priority: input.issue.priority,
+    state: input.issue.state,
+    branch_name: input.issue.branch_name,
+    url: input.issue.url,
+    labels: input.issue.labels,
+    blocked_by: input.issue.blocked_by,
+    created_at: input.issue.created_at,
+    updated_at: input.issue.updated_at,
   };
 
   try {
-    const content = renderTemplate(template, variables);
+    const raw: unknown = engine.parseAndRenderSync(template, {
+      issue: issueObj,
+      attempt: input.attempt,
+    });
+    // liquidjs returns string for sync templates
+    const content = typeof raw === 'string' ? raw : '';
     return { type: 'rendered', content };
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
-    if (message.includes('unknown variable') || message.includes('undefined variable')) {
-      return { type: 'template_render_error', message };
-    }
-    if (message.includes('unknown filter')) {
-      return { type: 'template_render_error', message };
-    }
-    return { type: 'template_render_error', message };
+    return { type: 'template_render_error', message: `Template render error: ${message}` };
   }
 };
 
 /**
- * Generate a continuation prompt for subsequent turns.
+ * Generate a continuation prompt for subsequent turns (SPEC 10.1).
+ *
+ * Continuation prompts reuse the same pi session and send continuation guidance
+ * rather than the original full issue prompt.
  */
 export const buildContinuationPrompt = (turnNumber: number, issue: Issue): string =>
   [
@@ -47,159 +82,3 @@ export const buildContinuationPrompt = (turnNumber: number, issue: Issue): strin
     'Please continue from where you left off.',
     `Current issue state: ${issue.state}`,
   ].join('\n');
-
-// --- Template engine internals ---
-
-type TemplateVariable = {
-  type: 'variable';
-  path: string[];
-  filters: TemplateFilter[];
-};
-
-type TemplateFilter = {
-  name: string;
-  args: string[];
-};
-
-type TemplateNode =
-  | { type: 'text'; value: string }
-  | { type: 'expression'; variable: TemplateVariable };
-
-/**
- * Simple strict template renderer.
- */
-const renderTemplate = (template: string, variables: Record<string, unknown>): string => {
-  const nodes = parseTemplate(template);
-  return nodes.map((node) => renderNode(node, variables)).join('');
-};
-
-const renderNode = (node: TemplateNode, variables: Record<string, unknown>): string => {
-  if (node.type === 'text') return node.value;
-
-  const { path, filters } = node.variable;
-  let value: unknown = variables;
-
-  // Walk the path
-  for (const segment of path) {
-    if (value === null || value === undefined) {
-      throw new Error(`undefined variable: ${path.join('.')}`);
-    }
-    if (typeof value !== 'object') {
-      throw new Error(`undefined variable: ${path.join('.')}`);
-    }
-    // oxlint-disable-next-line no-unsafe-type-assertion
-    value = (value as Record<string, unknown>)[segment];
-  }
-
-  // After path walking, check if value was found
-  if (value === undefined) {
-    throw new Error(`undefined variable: ${path.join('.')}`);
-  }
-
-  // Apply filters
-  for (const filter of filters) {
-    value = applyFilter(filter.name, value, filter.args);
-  }
-
-  if (value === null || value === undefined) {
-    return '';
-  }
-
-  // oxlint-disable-next-line no-base-to-string
-  return String(value);
-};
-
-const parseTemplate = (template: string): TemplateNode[] => {
-  const nodes: TemplateNode[] = [];
-  let remaining = template;
-
-  for (;;) {
-    const startIdx = remaining.indexOf('{{');
-    if (startIdx === -1) {
-      if (remaining.length > 0) {
-        nodes.push({ type: 'text', value: remaining });
-      }
-      break;
-    }
-
-    // Text before expression
-    if (startIdx > 0) {
-      nodes.push({ type: 'text', value: remaining.slice(0, startIdx) });
-    }
-
-    const endIdx = remaining.indexOf('}}', startIdx + 2);
-    if (endIdx === -1) {
-      // No closing }}, treat rest as text
-      nodes.push({ type: 'text', value: remaining.slice(startIdx) });
-      break;
-    }
-
-    const expr = remaining.slice(startIdx + 2, endIdx).trim();
-    const variable = parseExpression(expr);
-    nodes.push({ type: 'expression', variable });
-
-    remaining = remaining.slice(endIdx + 2);
-  }
-
-  return nodes;
-};
-
-const parseExpression = (expr: string): TemplateVariable => {
-  const parts = expr.split('|').map((p) => p.trim());
-
-  const varPart = parts[0];
-  if (varPart === undefined) {
-    throw new Error('empty expression');
-  }
-
-  const path = varPart
-    .split('.')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-
-  const filters: TemplateFilter[] = [];
-  for (let i = 1; i < parts.length; i++) {
-    const filterPart = parts[i];
-    if (filterPart === undefined) continue;
-
-    const filterMatch = /^(\w+)(?::(.+))?$/.exec(filterPart);
-    if (filterMatch === null) {
-      throw new Error(`unknown filter: ${filterPart}`);
-    }
-
-    const filterName = filterMatch[1];
-    if (filterName === undefined) continue;
-
-    const rawFilterArgs = filterMatch[2];
-    const filterArgs =
-      rawFilterArgs !== undefined && rawFilterArgs !== null
-        ? rawFilterArgs.split(',').map((a) => a.trim().replace(/^["']|["']$/g, ''))
-        : [];
-    filters.push({ name: filterName, args: filterArgs });
-  }
-
-  return { type: 'variable', path, filters };
-};
-
-const applyFilter = (name: string, value: unknown, args: string[]): unknown => {
-  switch (name) {
-    case 'upcase':
-      return typeof value === 'string' ? value.toUpperCase() : value;
-    case 'downcase':
-      return typeof value === 'string' ? value.toLowerCase() : value;
-    case 'prepend': {
-      const prefix = args[0] ?? '';
-      return typeof value === 'string' ? prefix + value : value;
-    }
-    case 'append': {
-      const suffix = args[0] ?? '';
-      return typeof value === 'string' ? value + suffix : value;
-    }
-    case 'default': {
-      const fallback = args[0] ?? '';
-      return value === null || value === undefined || value === '' ? fallback : value;
-    }
-    default:
-      throw new Error(`unknown filter: ${name}`);
-  }
-};

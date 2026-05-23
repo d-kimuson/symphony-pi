@@ -19,7 +19,7 @@ const sampleIssue: Issue = {
   updated_at: null,
 };
 
-describe('renderPrompt', () => {
+describe('renderPrompt (liquidjs)', () => {
   it('renders plain text template unchanged', () => {
     const template = '# Hello World\n\nThis is a test.';
     const result = renderPrompt(template, { issue: sampleIssue, attempt: null });
@@ -48,11 +48,12 @@ describe('renderPrompt', () => {
     expect(result.content).toBe('Attempt: ');
   });
 
-  it('iterates over labels', () => {
-    const template = 'Labels: {{ issue.labels }}';
+  it('iterates over labels with for loop', () => {
+    const template =
+      'Labels: {% for label in issue.labels %}{{ label }}{% unless forloop.last %}, {% endunless %}{% endfor %}';
     const result = renderPrompt(template, { issue: sampleIssue, attempt: null });
     if (result.type !== 'rendered') throw new Error('expected rendered');
-    expect(result.content).toBe('Labels: bug,frontend');
+    expect(result.content).toBe('Labels: bug, frontend');
   });
 
   it('fails on unknown variable', () => {
@@ -69,42 +70,11 @@ describe('renderPrompt', () => {
     expect(result.type).toBe('template_render_error');
   });
 
-  it('supports upcase filter', () => {
-    const template = '{{ issue.state | upcase }}';
+  it('renders labels join', () => {
+    const template = 'Labels: {{ issue.labels | join: ", " }}';
     const result = renderPrompt(template, { issue: sampleIssue, attempt: null });
     if (result.type !== 'rendered') throw new Error('expected rendered');
-    expect(result.content).toBe('IN PROGRESS');
-  });
-
-  it('supports downcase filter', () => {
-    const template = '{{ issue.state | downcase }}';
-    const result = renderPrompt(template, { issue: sampleIssue, attempt: null });
-    if (result.type !== 'rendered') throw new Error('expected rendered');
-    expect(result.content).toBe('in progress');
-  });
-
-  it('supports prepend filter', () => {
-    const template = '{{ issue.title | prepend:"[BUG] " }}';
-    const result = renderPrompt(template, { issue: sampleIssue, attempt: null });
-    if (result.type !== 'rendered') throw new Error('expected rendered');
-    expect(result.content).toBe('[BUG] Fix login bug');
-  });
-
-  it('supports append filter', () => {
-    const template = '{{ issue.identifier | append:"!" }}';
-    const result = renderPrompt(template, { issue: sampleIssue, attempt: null });
-    if (result.type !== 'rendered') throw new Error('expected rendered');
-    expect(result.content).toBe('TEST-1!');
-  });
-
-  it('supports default filter', () => {
-    const template = '{{ issue.description | default:"No description" }}';
-    const result = renderPrompt(template, {
-      issue: { ...sampleIssue, description: null },
-      attempt: null,
-    });
-    if (result.type !== 'rendered') throw new Error('expected rendered');
-    expect(result.content).toBe('No description');
+    expect(result.content).toBe('Labels: bug, frontend');
   });
 
   it('renders multiple variables in one template', () => {
@@ -122,6 +92,36 @@ describe('renderPrompt', () => {
     expect(result.content).toContain('# Issue TEST-1');
     expect(result.content).toContain('**Title:** Fix login bug');
     expect(result.content).toContain('**State:** In Progress');
+  });
+
+  it('handles empty description correctly', () => {
+    const template = 'Desc: {{ issue.description }}';
+    const result = renderPrompt(template, {
+      issue: { ...sampleIssue, description: null },
+      attempt: null,
+    });
+    if (result.type !== 'rendered') throw new Error('expected rendered');
+    // liquidjs outputs empty string for null
+    expect(result.content).toBe('Desc: ');
+  });
+
+  it('supports if conditionals', () => {
+    const template =
+      '{% if issue.description %}{{ issue.description }}{% else %}No description{% endif %}';
+    const result = renderPrompt(template, { issue: sampleIssue, attempt: null });
+    if (result.type !== 'rendered') throw new Error('expected rendered');
+    expect(result.content).toBe('Users cannot log in');
+  });
+
+  it('supports if else for null description', () => {
+    const template =
+      '{% if issue.description %}{{ issue.description }}{% else %}No description{% endif %}';
+    const result = renderPrompt(template, {
+      issue: { ...sampleIssue, description: null },
+      attempt: null,
+    });
+    if (result.type !== 'rendered') throw new Error('expected rendered');
+    expect(result.content).toBe('No description');
   });
 });
 

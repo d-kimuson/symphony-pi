@@ -1,61 +1,49 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execaCommand } from 'execa';
 
-const execAsync = promisify(exec);
-
-/** Server-only process/subprocess helpers. */
+/** Server-only process/subprocess helpers using execa. */
 
 export type ExecResult = {
   stdout: string;
   stderr: string;
   exitCode: number;
+  timedOut: boolean;
 };
 
 /**
  * Execute a shell command with a timeout.
- * Uses `sh -lc <script>` as per SPEC.
+ * Uses execa for robust process management (SPEC 9.4).
+ *
+ * @param script - Shell script to execute
+ * @param cwd - Working directory
+ * @param timeoutMs - Timeout in milliseconds
  */
 export const execShellScript = async (
   script: string,
   cwd: string,
   timeoutMs: number,
 ): Promise<ExecResult> => {
-  const controller = new AbortController();
-
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
-
   try {
-    const { stdout, stderr } = await execAsync(script, {
+    const result = await execaCommand(script, {
+      shell: true,
       cwd,
-      signal: controller.signal,
-      shell: '/bin/sh',
-      env: { ...process.env },
       timeout: timeoutMs,
+      reject: false,
     });
 
     return {
-      stdout: stdout.toString(),
-      stderr: stderr.toString(),
-      exitCode: 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode ?? (result.timedOut ? 124 : 0),
+      timedOut: result.timedOut,
     };
   } catch (err: unknown) {
-    let stdout = '';
-    let stderr = '';
-    let code: number | undefined;
-    if (err !== null && typeof err === 'object') {
-      const errObj = err as { stdout?: unknown; stderr?: unknown; code?: unknown };
-      if (typeof errObj.stdout === 'string') stdout = errObj.stdout;
-      if (typeof errObj.stderr === 'string') stderr = errObj.stderr;
-      if (typeof errObj.code === 'number') code = errObj.code;
-    }
+    // Handle spawn failures or other unexpected errors
+    const message = err instanceof Error ? err.message : String(err);
     return {
-      stdout,
-      stderr,
-      exitCode: code ?? (controller.signal.aborted ? 124 : 1),
+      stdout: '',
+      stderr: message,
+      exitCode: 1,
+      timedOut: false,
     };
-  } finally {
-    clearTimeout(timeout);
   }
 };

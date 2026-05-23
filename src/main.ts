@@ -13,6 +13,7 @@
  *   9. Graceful shutdown on SIGINT/SIGTERM
  */
 
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { createRealSessionHandle } from './server/app/agents/workflows/runAgentSession.js';
@@ -26,11 +27,13 @@ const args = parseCliArgs(process.argv);
 // Set session factory before bootstrap (dependency injection)
 setSessionHandleFactory(createRealSessionHandle);
 
-// CLI --workflow path override, otherwise default to cwd/WORKFLOW.md
-const workflowPath =
-  args.workflow !== undefined && args.workflow !== ''
-    ? resolve(args.workflow)
-    : resolve(process.cwd(), 'WORKFLOW.md');
+// Resolve workflow path — validate existence for explicit paths
+const workflowPath = resolve(args.workflowPath);
+if (args.workflowPath !== './WORKFLOW.md' && !existsSync(workflowPath)) {
+  console.error(`[symphony] WORKFLOW.md not found at: ${workflowPath}`);
+  console.error('[symphony] Provide a valid path or omit the argument to use ./WORKFLOW.md');
+  process.exit(1);
+}
 
 bootstrap({
   workflowPath,

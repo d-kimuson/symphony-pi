@@ -78,9 +78,10 @@ export const fetchJiraIssuesByStates = async (
 
   // Build scoped JQL: project-level or JQL-scoped, not site-wide
   const scopeExpr = config.jql ?? (config.project_key ? `project = ${config.project_key}` : '');
-  const jql = scopeExpr
-    ? `${scopeExpr} AND status in (${statesClause}) ORDER BY created ASC`
-    : `status in (${statesClause}) ORDER BY created ASC`;
+  const jql =
+    scopeExpr !== null && scopeExpr !== ''
+      ? `${scopeExpr} AND status in (${statesClause}) ORDER BY created ASC`
+      : `status in (${statesClause}) ORDER BY created ASC`;
 
   return fetchJiraIssuesByJql(config, jql, stateNames);
 };
@@ -234,7 +235,6 @@ const executeJiraRequest = async <T>(
       return { type: 'jira_api_status', status: response.status, body };
     }
 
-    // oxlint-disable-next-line no-unsafe-type-assertion
     const json: T = (await response.json()) as T;
     return json;
   } catch (e: unknown) {

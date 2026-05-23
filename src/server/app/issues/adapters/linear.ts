@@ -18,6 +18,26 @@ type GraphQLResponse = {
   errors?: readonly { message: string }[];
 };
 
+const isGraphQLResponse = (value: unknown): value is GraphQLResponse => {
+  if (value === null || typeof value !== 'object') return false;
+  const obj = value as Record<string, unknown>;
+  const dataVal = obj['data'];
+  if (dataVal !== undefined && dataVal !== null && typeof dataVal !== 'object') return false;
+  const errorsVal = obj['errors'];
+  if (errorsVal !== undefined) {
+    if (!Array.isArray(errorsVal)) return false;
+    for (const err of errorsVal) {
+      if (
+        err === null ||
+        typeof err !== 'object' ||
+        typeof (err as Record<string, unknown>)['message'] !== 'string'
+      )
+        return false;
+    }
+  }
+  return true;
+};
+
 /**
  * Fetch candidate issues from Linear using GraphQL.
  */
@@ -230,7 +250,10 @@ type BlockNode = {
   state?: { name?: unknown };
 };
 
-const normalizeLinearIssue = (node: LinearIssueNode, config: LinearTrackerConfig): Issue | null => {
+const normalizeLinearIssue = (
+  node: LinearIssueNode,
+  _config: LinearTrackerConfig,
+): Issue | null => {
   if (typeof node.id !== 'string' || typeof node.identifier !== 'string') return null;
 
   // Extract label names (not IDs) — SPEC 11.2, 11.4
@@ -316,7 +339,10 @@ const executeLinearQuery = async (
       return { type: 'linear_api_status', status: response.status, body };
     }
 
-    const json = (await response.json()) as GraphQLResponse;
+    const json: unknown = await response.json();
+    if (!isGraphQLResponse(json)) {
+      return { type: 'linear_unknown_payload' };
+    }
 
     if (json.errors && json.errors.length > 0) {
       return {
@@ -330,16 +356,26 @@ const executeLinearQuery = async (
       return { type: 'linear_unknown_payload' };
     }
 
-    const issuesData = data['issues'] as Record<string, unknown> | undefined;
-    if (issuesData === undefined) {
+    const issuesData = data['issues'];
+    if (issuesData === undefined || issuesData === null || typeof issuesData !== 'object') {
       return { type: 'linear_unknown_payload' };
     }
 
-    const nodes = (issuesData['nodes'] ?? []) as LinearIssueNode[];
-    const pageInfo = (issuesData['pageInfo'] ?? {
-      hasNextPage: false,
-      endCursor: null,
-    }) as { hasNextPage: boolean; endCursor: string | null };
+    const issuesObj = issuesData as Record<string, unknown>;
+    const nodesRaw = issuesObj['nodes'];
+    const nodes: LinearIssueNode[] = Array.isArray(nodesRaw) ? (nodesRaw as LinearIssueNode[]) : [];
+
+    const pageInfoRaw = issuesObj['pageInfo'];
+    let pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    if (pageInfoRaw !== null && typeof pageInfoRaw === 'object') {
+      const pi = pageInfoRaw as Record<string, unknown>;
+      pageInfo = {
+        hasNextPage: typeof pi['hasNextPage'] === 'boolean' ? pi['hasNextPage'] : false,
+        endCursor: typeof pi['endCursor'] === 'string' ? pi['endCursor'] : null,
+      };
+    } else {
+      pageInfo = { hasNextPage: false, endCursor: null };
+    }
 
     return { nodes, pageInfo };
   } catch (e: unknown) {

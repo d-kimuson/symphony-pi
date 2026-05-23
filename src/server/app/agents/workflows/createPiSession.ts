@@ -3,7 +3,7 @@
  * Implements SPEC 10.1 session creation contract.
  *
  * Uses @earendil-works/pi-coding-agent SDK exports.
- * Configures model, thinking, tools, customTools, session_dir from EffectiveConfig.
+ * Configures model, thinking, tools, session_dir from EffectiveConfig.
  * NO production mock fallback — SDK failures are startup_failed errors.
  */
 
@@ -37,7 +37,9 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
   try {
     const { createAgentSession } = await import('@earendil-works/pi-coding-agent');
 
-    // Build SDK options from config
+    // Build SDK options object matching CreateAgentSessionOptions shape
+    // Note: pi.model is a string identifier; the SDK resolves it via ModelRegistry.
+    // We use Record<string, unknown> because CreateAgentSessionOptions types vary by SDK version.
     const sdkOptions: Record<string, unknown> = {
       cwd: workspacePath,
     };
@@ -55,9 +57,10 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
       sdkOptions['sessionDir'] = config.pi.session_dir;
     }
 
-    // Create the session — using type assertion because SDK types vary
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (createAgentSession as any)(sdkOptions);
+    // The SDK function signature accepts CreateAgentSessionOptions which may vary.
+    // We use a Record to pass config values; the SDK validates at runtime.
+    // Safe because createAgentSession accepts a superset of these options.
+    const result = await createAgentSession(sdkOptions as Parameters<typeof createAgentSession>[0]);
 
     const session = result.session;
 

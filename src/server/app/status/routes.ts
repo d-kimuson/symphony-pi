@@ -181,9 +181,10 @@ export const mountStatusRoutes = <T extends Hono<HonoContext>>(app: T): T => {
           started_at: new Date(entry.started_at).toISOString(),
           attempt: entry.attempt,
           workspace_path: entry.workspace_path,
-          last_agent_timestamp: entry.last_agent_timestamp
-            ? new Date(entry.last_agent_timestamp).toISOString()
-            : null,
+          last_agent_timestamp:
+            entry.last_agent_timestamp !== undefined
+              ? new Date(entry.last_agent_timestamp).toISOString()
+              : null,
         });
       }
     }

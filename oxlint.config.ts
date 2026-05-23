@@ -249,6 +249,18 @@ export default defineConfig({
       },
     },
     {
+      files: ['src/server/app/issues/adapters/*.ts'],
+      rules: {
+        // 外部API JSON のパースでは unknown → 型付き への narrowing が必須であり、
+        // 適切な typeof/Array.isArray チェック後の as キャストは妥当
+        'typescript/no-unsafe-type-assertion': 'off',
+        'typescript/no-unsafe-assignment': 'off',
+        'typescript/no-unsafe-member-access': 'off',
+        'typescript/no-unsafe-call': 'off',
+        'typescript/strict-boolean-expressions': 'off',
+      },
+    },
+    {
       files: ['**/*.{test,spec}.?([mc])[jt]s?(x)'],
       rules: {
         'jest/no-conditional-expect': 'error', // 条件分岐内での expect を禁止

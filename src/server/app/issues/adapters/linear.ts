@@ -97,6 +97,9 @@ export const fetchLinearCandidateIssues = async (
     if ('type' in result) return result;
 
     const { nodes, pageInfo } = result;
+    console.log(
+      `[symphony] Linear candidate fetch: ${nodes.length} issues (hasNextPage=${pageInfo.hasNextPage})`,
+    );
     for (const node of nodes) {
       const issue = normalizeLinearIssue(node, config);
       if (issue !== null) {

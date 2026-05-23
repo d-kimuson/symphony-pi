@@ -203,6 +203,7 @@ export const bootstrap = async (
 
     // Run immediate tick
     void tick();
+    console.log('[symphony] Poll loop started');
 
     // Schedule repeated ticks
     pollTimer = setInterval(() => {

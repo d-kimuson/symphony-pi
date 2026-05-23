@@ -67,6 +67,8 @@ export const pollTick = async (
     return;
   }
 
+  console.log(`[symphony] Poll tick: ${candidates.length} candidate(s)`);
+
   // 3. Sort by dispatch priority
   const sorted = sortCandidatesByPriority(candidates);
 

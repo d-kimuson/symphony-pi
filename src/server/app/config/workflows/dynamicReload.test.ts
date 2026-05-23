@@ -1,0 +1,75 @@
+import { watchFile } from 'node:fs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { startDynamicReload } from './dynamicReload.js';
+import { loadConfig } from './loadConfig.js';
+
+vi.mock('./loadConfig.js', () => ({
+  loadConfig: vi.fn(),
+}));
+
+vi.mock('node:fs', () => ({
+  watchFile: vi.fn(),
+}));
+
+describe('startDynamicReload', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns a cleanup function', () => {
+    const cleanup = startDynamicReload(
+      '/path/to/WORKFLOW.md',
+      () => {},
+      () => {},
+    );
+    expect(typeof cleanup).toBe('function');
+  });
+
+  it('sets up file watcher for the workflow path', () => {
+    startDynamicReload(
+      '/path/to/WORKFLOW.md',
+      () => {},
+      () => {},
+    );
+    expect(watchFile).toHaveBeenCalled();
+  });
+
+  it('reloads config and calls onReload when valid', () => {
+    const onReload = vi.fn();
+    const onError = vi.fn();
+
+    vi.mocked(loadConfig).mockReturnValue({ type: 'loaded', config: {} as never });
+
+    startDynamicReload('/path/to/WORKFLOW.md', onReload, onError);
+
+    // Extract and invoke the listener registered by watchFile
+    const calls = vi.mocked(watchFile).mock.calls;
+    // watchFile(path, {interval}, listener) — 3 args at runtime
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const listener = (calls[0] as any)?.[2] as (() => void) | undefined;
+    expect(listener).toBeDefined();
+    if (listener) listener();
+
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('reloads config and calls onError when invalid (keeps last good config)', () => {
+    const onReload = vi.fn();
+    const onError = vi.fn();
+
+    vi.mocked(loadConfig).mockReturnValue({ type: 'error', error: 'Parse error' });
+
+    startDynamicReload('/path/to/WORKFLOW.md', onReload, onError);
+
+    const calls = vi.mocked(watchFile).mock.calls;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const listener = (calls[0] as any)?.[2] as (() => void) | undefined;
+    expect(listener).toBeDefined();
+    if (listener) listener();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onReload).not.toHaveBeenCalled();
+  });
+});

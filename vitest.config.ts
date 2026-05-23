@@ -36,10 +36,10 @@ export default defineConfig({
       include: ['src/**/*.ts', 'src/**/*.tsx'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/web/**', 'src/main.ts'],
       thresholds: {
-        statements: 65,
+        statements: 70,
         branches: 60,
-        functions: 65,
-        lines: 69,
+        functions: 70,
+        lines: 70,
       },
       reporter: ['text', 'text-summary', 'json-summary'],
       reportsDirectory: './coverage',

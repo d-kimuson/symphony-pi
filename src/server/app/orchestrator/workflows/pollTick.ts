@@ -191,6 +191,8 @@ const dispatchIssue = (state: OrchestratorState, issue: Issue, config: Effective
   };
   state.running.set(issue.id, entry);
 
+  console.log(`[symphony] Dispatching ${issue.identifier}: ${issue.title}`);
+
   // Fire-and-forget: run the agent in the background
   void runDispatchWorker(
     state,
@@ -285,8 +287,12 @@ const runDispatchWorker = async (
     let sessionHandle: AgentSessionHandle;
     try {
       sessionHandle = await sessionFactory(workspacePath, config, issue.identifier);
+      console.log(
+        `[symphony] Agent session created: ${sessionHandle.sessionId} for ${issue.identifier}`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[symphony] Session creation failed for ${issue.identifier}: ${msg}`);
       handleWorkerExit(state, entry.issue_id, false, `Session creation failed: ${msg}`, config);
       return;
     }

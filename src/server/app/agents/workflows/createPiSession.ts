@@ -192,6 +192,7 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error(`[symphony] pi SDK session creation failed: ${message}`);
     return { type: 'error', error: `pi SDK session creation failed: ${message}` };
   }
 };

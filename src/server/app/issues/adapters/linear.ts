@@ -44,7 +44,8 @@ export const fetchLinearCandidateIssues = async (
           state { name }
           branchName
           url
-          labelIds
+          labels { nodes { name } }
+          blocks { nodes { id identifier state { name } } }
           createdAt
           updatedAt
         }
@@ -79,6 +80,12 @@ export const fetchLinearCandidateIssues = async (
     }
 
     hasNextPage = pageInfo.hasNextPage;
+    if (hasNextPage && pageInfo.endCursor === null) {
+      return {
+        type: 'linear_missing_end_cursor',
+        message: 'hasNextPage is true but endCursor is null',
+      };
+    }
     after = pageInfo.endCursor;
   }
 
@@ -113,7 +120,8 @@ export const fetchLinearIssuesByStates = async (
           state { name }
           branchName
           url
-          labelIds
+          labels { nodes { name } }
+          blocks { nodes { id identifier state { name } } }
           createdAt
           updatedAt
         }
@@ -148,6 +156,12 @@ export const fetchLinearIssuesByStates = async (
     }
 
     hasNextPage = pageInfo.hasNextPage;
+    if (hasNextPage && pageInfo.endCursor === null) {
+      return {
+        type: 'linear_missing_end_cursor',
+        message: 'hasNextPage is true but endCursor is null',
+      };
+    }
     after = pageInfo.endCursor;
   }
 
@@ -175,7 +189,8 @@ export const fetchLinearIssueStatesByIds = async (
           state { name }
           branchName
           url
-          labelIds
+          labels { nodes { name } }
+          blocks { nodes { id identifier state { name } } }
           createdAt
           updatedAt
         }
@@ -203,22 +218,48 @@ type LinearIssueNode = {
   state?: { name?: unknown };
   branchName?: unknown;
   url?: unknown;
-  labelIds?: unknown;
+  labels?: { nodes?: readonly { name?: unknown }[] };
+  blocks?: { nodes?: readonly BlockNode[] };
   createdAt?: unknown;
   updatedAt?: unknown;
 };
 
-const normalizeLinearIssue = (
-  node: LinearIssueNode,
-  _config: LinearTrackerConfig,
-): Issue | null => {
+type BlockNode = {
+  id?: unknown;
+  identifier?: unknown;
+  state?: { name?: unknown };
+};
+
+const normalizeLinearIssue = (node: LinearIssueNode, config: LinearTrackerConfig): Issue | null => {
   if (typeof node.id !== 'string' || typeof node.identifier !== 'string') return null;
 
+  // Extract label names (not IDs) — SPEC 11.2, 11.4
   const labels: string[] = [];
-  if (Array.isArray(node.labelIds)) {
-    for (const lid of node.labelIds) {
-      if (typeof lid === 'string') {
-        labels.push(lid.toLowerCase());
+  const labelNodes = node.labels?.nodes;
+  if (labelNodes !== undefined && Array.isArray(labelNodes)) {
+    for (const ln of labelNodes) {
+      if (ln && typeof ln === 'object' && typeof (ln as { name?: unknown }).name === 'string') {
+        labels.push((ln as { name: string }).name.toLowerCase());
+      }
+    }
+  }
+
+  // Extract blockers from inverse relation `blocks` — SPEC 11.2
+  const blockedBy: { id: string | null; identifier: string | null; state: string | null }[] = [];
+  const blockNodes = node.blocks?.nodes;
+  if (blockNodes !== undefined && Array.isArray(blockNodes)) {
+    for (const bn of blockNodes) {
+      if (bn && typeof bn === 'object') {
+        blockedBy.push({
+          id: typeof bn.id === 'string' ? bn.id : null,
+          identifier: typeof bn.identifier === 'string' ? bn.identifier : null,
+          state:
+            bn.state &&
+            typeof bn.state === 'object' &&
+            typeof (bn.state as { name?: unknown }).name === 'string'
+              ? (bn.state as { name: string }).name
+              : null,
+        });
       }
     }
   }
@@ -234,7 +275,7 @@ const normalizeLinearIssue = (
     branch_name: ensureStringOrNull(node.branchName),
     url: ensureStringOrNull(node.url) ?? `https://linear.app/issue/${node.identifier}`,
     labels,
-    blocked_by: [],
+    blocked_by: blockedBy,
     created_at: ensureStringOrNull(node.createdAt),
     updated_at: ensureStringOrNull(node.updatedAt),
   };
@@ -275,8 +316,7 @@ const executeLinearQuery = async (
       return { type: 'linear_api_status', status: response.status, body };
     }
 
-    // oxlint-disable-next-line no-unsafe-type-assertion
-    const json: GraphQLResponse = (await response.json()) as GraphQLResponse;
+    const json = (await response.json()) as GraphQLResponse;
 
     if (json.errors && json.errors.length > 0) {
       return {
@@ -290,15 +330,12 @@ const executeLinearQuery = async (
       return { type: 'linear_unknown_payload' };
     }
 
-    // oxlint-disable-next-line no-unsafe-type-assertion
     const issuesData = data['issues'] as Record<string, unknown> | undefined;
     if (issuesData === undefined) {
       return { type: 'linear_unknown_payload' };
     }
 
-    // oxlint-disable-next-line no-unsafe-type-assertion
     const nodes = (issuesData['nodes'] ?? []) as LinearIssueNode[];
-    // oxlint-disable-next-line no-unsafe-type-assertion
     const pageInfo = (issuesData['pageInfo'] ?? {
       hasNextPage: false,
       endCursor: null,

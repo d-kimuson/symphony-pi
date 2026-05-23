@@ -193,6 +193,7 @@ describe('validateConfig', () => {
   it('reports invalid port', () => {
     const cfg: EffectiveConfig = {
       ...baseConfig,
+      prompt_template: null,
       server: { ...baseConfig.server, port: 0 },
     };
     expect(validateConfig(cfg)).toContain('server.port must be between 1 and 65535');

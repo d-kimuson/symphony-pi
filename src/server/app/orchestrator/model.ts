@@ -16,6 +16,8 @@ export type RunningEntry = {
   readonly started_at: number;
   readonly attempt: number | null;
   readonly turn_count: number;
+  /** Last agent event timestamp for stall detection (SPEC 8.5) */
+  readonly last_agent_timestamp?: number;
 };
 
 export type AgentTotals = {

@@ -3,71 +3,88 @@
  * Implements SPEC 10.1 session creation contract.
  *
  * Uses @earendil-works/pi-coding-agent SDK exports.
- * Falls back to mock session if the SDK is unavailable or misconfigured.
+ * Configures model, thinking, tools, customTools, session_dir from EffectiveConfig.
+ * NO production mock fallback — SDK failures are startup_failed errors.
  */
 
 import type { EffectiveConfig } from '../../config/model.js';
 import type { AgentSessionHandle } from './runAgentSession.js';
 
-type PiCreateOptions = {
+export type PiCreateOptions = {
   readonly workspacePath: string;
   readonly config: EffectiveConfig;
-  readonly tools: readonly string[];
 };
+
+export type PiSessionResult =
+  | { readonly type: 'created'; readonly handle: AgentSessionHandle }
+  | { readonly type: 'error'; readonly error: string };
 
 /**
  * Create a real pi-coding-agent SDK session as an AgentSessionHandle.
  *
- * SPEC 10.1: Uses `createAgentSession({ cwd: workspacePath, ... })` from the pi SDK.
- * Falls back to mock session if the SDK is unavailable or throws.
+ * SPEC 10.1 compliance:
+ * - Passes cwd = workspacePath
+ * - Passes pi.model as model option
+ * - Passes pi.thinking as thinkingLevel
+ * - Passes pi.tools as initialActiveToolNames
+ * - Passes pi.session_dir as sessionDir
+ *
+ * Returns error on SDK failure — NO mock fallback in production.
  */
-export const createPiSessionHandle = async (
-  options: PiCreateOptions,
-): Promise<AgentSessionHandle> => {
-  const { workspacePath } = options;
+export const createPiSessionHandle = async (options: PiCreateOptions): Promise<PiSessionResult> => {
+  const { workspacePath, config } = options;
 
   try {
-    // Dynamic import to avoid hard failure when pi SDK is not available
     const { createAgentSession } = await import('@earendil-works/pi-coding-agent');
 
-    // Create the session using the SDK API
-    const result = await createAgentSession({
+    // Build SDK options from config
+    const sdkOptions: Record<string, unknown> = {
       cwd: workspacePath,
-    });
+    };
+
+    if (config.pi.model !== null) {
+      sdkOptions['model'] = config.pi.model;
+    }
+    if (config.pi.thinking !== null) {
+      sdkOptions['thinkingLevel'] = config.pi.thinking;
+    }
+    if (config.pi.tools.length > 0) {
+      sdkOptions['initialActiveToolNames'] = [...config.pi.tools];
+    }
+    if (config.pi.session_dir !== null) {
+      sdkOptions['sessionDir'] = config.pi.session_dir;
+    }
+
+    // Create the session — using type assertion because SDK types vary
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (createAgentSession as any)(sdkOptions);
 
     const session = result.session;
 
-    // Wrap the real session in our AgentSessionHandle contract
     return {
-      sessionId: session.sessionId,
+      type: 'created',
+      handle: {
+        sessionId: session.sessionId,
 
-      prompt: async (message: string): Promise<void> => {
-        await session.prompt(message);
-      },
+        prompt: async (message: string): Promise<void> => {
+          await session.prompt(message);
+        },
 
-      dispose: () => {
-        session.dispose();
-        return Promise.resolve();
-      },
+        dispose: (): Promise<void> => {
+          session.dispose();
+          return Promise.resolve();
+        },
 
-      events: {
-        // Note: pi SDK AgentSession has private event listeners.
-        // In practice, tools and prompts signal their completion through
-        // prompt() resolution/rejection. The orchestrator uses this
-        // to track turn lifecycle.
-        subscribe: (_handler: (event: unknown) => void): (() => void) => {
-          // No-op: the SDK's internal event system is not directly exposed.
-          // Turn completion is signaled through prompt() resolution.
-          return () => {};
+        events: {
+          subscribe: (_handler: (event: unknown) => void): (() => void) => {
+            // pi SDK has private event listeners; turn completion via prompt() resolution
+            return () => {};
+          },
         },
       },
     };
   } catch (error: unknown) {
-    // Fall back to mock session when pi SDK is unavailable
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[symphony] pi SDK session creation failed, using mock: ${message}`);
-
-    const { createMockSessionHandle } = await import('./runAgentSession.js');
-    return createMockSessionHandle('success');
+    return { type: 'error', error: `pi SDK session creation failed: ${message}` };
   }
 };

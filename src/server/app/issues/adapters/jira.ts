@@ -67,6 +67,7 @@ export const fetchJiraCandidateIssues = async (
 
 /**
  * Fetch issues by state names (for startup terminal cleanup).
+ * SPEC 8.6: Terminal cleanup is scoped to project_key or JQL.
  */
 export const fetchJiraIssuesByStates = async (
   config: JiraTrackerConfig,
@@ -74,7 +75,13 @@ export const fetchJiraIssuesByStates = async (
 ): Promise<readonly Issue[] | JiraApiError> => {
   if (stateNames.length === 0) return [];
   const statesClause = stateNames.map((s) => `"${s}"`).join(', ');
-  const jql = `status in (${statesClause}) ORDER BY created ASC`;
+
+  // Build scoped JQL: project-level or JQL-scoped, not site-wide
+  const scopeExpr = config.jql ?? (config.project_key ? `project = ${config.project_key}` : '');
+  const jql = scopeExpr
+    ? `${scopeExpr} AND status in (${statesClause}) ORDER BY created ASC`
+    : `status in (${statesClause}) ORDER BY created ASC`;
+
   return fetchJiraIssuesByJql(config, jql, stateNames);
 };
 
@@ -89,6 +96,8 @@ export const fetchJiraIssueStatesByIds = async (
 
   const results: Issue[] = [];
 
+  // SPEC 11.5: State refresh failure should NOT silently swallow errors.
+  // Fetch all issues; if any fail, return the error rather than partial results.
   for (const id of issueIds) {
     const result = await executeJiraRequest<JiraIssue>(
       config,
@@ -97,8 +106,8 @@ export const fetchJiraIssueStatesByIds = async (
     );
 
     if ('type' in result) {
-      // Continue trying other IDs on individual errors
-      continue;
+      // Individual fetch failed — return error, don't silently skip
+      return result;
     }
 
     const issue = normalizeJiraIssue(result, config);

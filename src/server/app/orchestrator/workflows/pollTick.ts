@@ -1,10 +1,22 @@
 /** Poll tick workflow. The orchestrator is the only owner of scheduling state mutations. */
 
+import type { AgentRunnerEvent } from '../../agents/model.js';
 import type { EffectiveConfig } from '../../config/model.js';
 import type { Issue } from '../../issues/model.js';
 import type { OrchestratorState, RunningEntry } from '../model.js';
 
+import { renderPrompt } from '../../agents/services/buildPrompt.js';
+import {
+  runAgentSession,
+  type AgentSessionHandle,
+} from '../../agents/workflows/runAgentSession.js';
 import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.js';
+import {
+  ensureWorkspace,
+  runAfterCreateHook,
+  runBeforeRunHook,
+  runAfterRunHook,
+} from '../../workspaces/workflows/ensureWorkspace.js';
 import {
   sortCandidatesByPriority,
   isDispatchEligible,
@@ -13,6 +25,25 @@ import {
   isSessionStalled,
   determineReconciliationAction,
 } from '../services/stateTransitions.js';
+
+export type SessionHandleFactory = (
+  workspacePath: string,
+  config: EffectiveConfig,
+) => Promise<AgentSessionHandle>;
+
+// Module-level storage for workflow prompt template (set during bootstrap)
+let workflowPromptTemplate: string | null = null;
+
+export const setWorkflowPromptTemplate = (template: string): void => {
+  workflowPromptTemplate = template;
+};
+
+// Injected by bootstrap
+let sessionFactory: SessionHandleFactory | null = null;
+
+export const setSessionHandleFactory = (factory: SessionHandleFactory): void => {
+  sessionFactory = factory;
+};
 
 /**
  * Execute one poll tick.
@@ -119,26 +150,152 @@ const reconcileRunningIssues = async (
 };
 
 /**
- * Dispatch an issue to start running.
+ * Dispatch an issue: create workspace, run hooks, build prompt, start agent.
+ * Runs asynchronously (fire-and-forget from the poll tick perspective).
  */
-const dispatchIssue = (state: OrchestratorState, issue: Issue, _config: EffectiveConfig): void => {
+const dispatchIssue = (state: OrchestratorState, issue: Issue, config: EffectiveConfig): void => {
   state.claimed.add(issue.id);
+
+  // Create workspace
+  const wsResult = ensureWorkspace(issue.identifier, config.workspace.root);
+  if (wsResult.type === 'error') {
+    console.error(`[symphony] dispatch failed: ${wsResult.error}`);
+    state.claimed.delete(issue.id);
+    return;
+  }
+
+  const workspace = wsResult.workspace;
 
   const entry: RunningEntry = {
     issue_id: issue.id,
     issue_identifier: issue.identifier,
-    workspace_path: '', // Will be set by workspace manager
+    workspace_path: workspace.path,
     started_at: Date.now(),
     attempt: null,
     turn_count: 0,
   };
-
   state.running.set(issue.id, entry);
+
+  // Fire-and-forget: run the agent in the background
+  void runDispatchWorker(state, entry, issue, workspace.path, config, wsResult.type === 'created');
 };
 
 /**
- * Handle worker exit (normal completion).
+ * Run the full dispatch worker lifecycle:
+ * hooks → prompt → agent session → hooks → exit handling.
  */
+const runDispatchWorker = async (
+  state: OrchestratorState,
+  entry: RunningEntry,
+  issue: Issue,
+  workspacePath: string,
+  config: EffectiveConfig,
+  isNewWorkspace: boolean,
+): Promise<void> => {
+  try {
+    // Run after_create hook for newly created workspaces (SPEC 9.4)
+    if (isNewWorkspace && config.hooks.after_create) {
+      const result = await runAfterCreateHook(
+        { path: workspacePath, workspace_key: entry.issue_identifier, created_now: true },
+        config,
+      );
+      if (result.type === 'failure' || result.type === 'timeout') {
+        console.error(`[symphony] after_create hook failed: ${result.error}`);
+        handleWorkerExit(
+          state,
+          entry.issue_id,
+          false,
+          `after_create hook: ${result.error}`,
+          config,
+        );
+        return;
+      }
+    }
+
+    // Run before_run hook (SPEC 9.4)
+    const beforeResult = await runBeforeRunHook(workspacePath, config);
+    if (beforeResult.type === 'failure' || beforeResult.type === 'timeout') {
+      console.error(`[symphony] before_run hook failed: ${beforeResult.error}`);
+      handleWorkerExit(
+        state,
+        entry.issue_id,
+        false,
+        `before_run hook: ${beforeResult.error}`,
+        config,
+      );
+      return;
+    }
+
+    // Build prompt from workflow template (SPEC 12)
+    const template =
+      workflowPromptTemplate ??
+      `Work on issue {{ issue.identifier }}: {{ issue.title }}
+
+{% if issue.description %}{{ issue.description }}{% endif %}`;
+    const promptResult = renderPrompt(template, { issue, attempt: entry.attempt });
+    let promptContent: string;
+    if (promptResult.type !== 'rendered') {
+      handleWorkerExit(
+        state,
+        entry.issue_id,
+        false,
+        `Prompt render error: ${promptResult.message}`,
+        config,
+      );
+      return;
+    }
+    promptContent = promptResult.content;
+
+    // Create pi session handle
+    if (sessionFactory === null) {
+      handleWorkerExit(state, entry.issue_id, false, 'Session factory not initialized', config);
+      return;
+    }
+
+    let sessionHandle: AgentSessionHandle;
+    try {
+      sessionHandle = await sessionFactory(workspacePath, config);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      handleWorkerExit(state, entry.issue_id, false, `Session creation failed: ${msg}`, config);
+      return;
+    }
+
+    // Run agent session (SPEC 10)
+    const onEvent = (_event: AgentRunnerEvent): void => {
+      // Events are logged by the runner; we could accumulate token usage here
+    };
+
+    const checkState = async (issueId: string): Promise<string | null> => {
+      const refreshed = await fetchIssueStatesByIds(config, [issueId]);
+      if (refreshed === null || refreshed.length === 0) return null;
+      return refreshed[0]?.state ?? null;
+    };
+
+    const runResult = await runAgentSession(
+      sessionHandle,
+      promptContent,
+      issue,
+      config,
+      onEvent,
+      checkState,
+    );
+
+    // Run after_run hook (SPEC 9.4 — failure logged but ignored)
+    const afterResult = await runAfterRunHook(workspacePath, config);
+    if (afterResult.type === 'failure' || afterResult.type === 'timeout') {
+      console.warn(`[symphony] after_run hook failed (ignored): ${afterResult.error}`);
+    }
+
+    // Handle completion
+    const success = runResult.status === 'completed';
+    handleWorkerExit(state, entry.issue_id, success, runResult.error, config);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    handleWorkerExit(state, entry.issue_id, false, `Worker error: ${msg}`, config);
+  }
+};
+
 export const handleWorkerExit = (
   state: OrchestratorState,
   issueId: string,
@@ -183,13 +340,62 @@ export const handleWorkerExit = (
 
 /**
  * Handle retry timer fired.
+ * SPEC 8.4: On retry fire, re-fetch active candidates and attempt re-dispatch.
  */
-export const handleRetryFire = (state: OrchestratorState, issueId: string): void => {
+export const handleRetryFire = async (
+  state: OrchestratorState,
+  issueId: string,
+  config: EffectiveConfig,
+): Promise<void> => {
   const retryEntry = state.retry_attempts.get(issueId);
   if (retryEntry === undefined) return;
 
   state.retry_attempts.delete(issueId);
   state.claimed.delete(issueId);
 
-  // The orchestrator will re-evaluate dispatch eligibility on the next tick
+  // Re-fetch active candidates and check eligibility (SPEC 8.4)
+  const candidates = await fetchIssues(config);
+  if (candidates === null) {
+    // Fetch failed — requeue with error
+    const retry = createRetryEntry(
+      issueId,
+      retryEntry.identifier,
+      retryEntry.attempt + 1,
+      false,
+      config.agent.max_retry_backoff_ms,
+      'Retry fire: candidate fetch failed',
+    );
+    state.retry_attempts.set(issueId, retry);
+    return;
+  }
+
+  const issue = candidates.find((c) => c.id === issueId);
+  if (issue === undefined) {
+    // Issue not found in candidates — release claim (SPEC 8.4)
+    return;
+  }
+
+  // Check if still eligible
+  if (!isDispatchEligible(issue, config, state.running, state.claimed)) {
+    // No longer active — release claim
+    return;
+  }
+
+  // Check if slots available
+  if (!hasGlobalSlots(config, state.running)) {
+    // No slots — requeue (SPEC 8.4)
+    const retry = createRetryEntry(
+      issueId,
+      retryEntry.identifier,
+      retryEntry.attempt,
+      false,
+      config.agent.max_retry_backoff_ms,
+      'no available orchestrator slots',
+    );
+    state.retry_attempts.set(issueId, retry);
+    return;
+  }
+
+  // Re-dispatch
+  dispatchIssue(state, issue, config);
 };

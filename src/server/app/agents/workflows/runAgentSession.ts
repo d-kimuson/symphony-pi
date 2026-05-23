@@ -5,7 +5,6 @@ import type { Issue } from '../../issues/model.js';
 import type { AgentRunnerEvent } from '../model.js';
 
 import { buildContinuationPrompt } from '../services/buildPrompt.js';
-import { buildSubagentPrefix, type SubagentRole } from '../services/subagentOrchestrator.js';
 
 export type AgentSessionHandle = {
   readonly sessionId: string;
@@ -23,8 +22,20 @@ export type AgentRunResult = {
 };
 
 /**
+ * Check the current tracker state for an issue.
+ * Passed as a callback so the runner doesn't need to know tracker details.
+ */
+export type StateChecker = (issueId: string) => Promise<string | null>;
+
+/**
  * Run an agent session for an issue.
- * Uses the pi-coding-agent SDK (mocked for testing).
+ *
+ * SPEC 7.1, 7.2, 10.3:
+ * - Creates synthetic session IDs
+ * - Runs turns with timeout
+ * - Checks tracker state between turns
+ * - Stops when state leaves active_states or max_turns reached
+ * - Disposes session in all exit paths
  */
 export const runAgentSession = async (
   sessionHandle: AgentSessionHandle,
@@ -32,10 +43,10 @@ export const runAgentSession = async (
   issue: Issue,
   config: EffectiveConfig,
   onEvent: (event: AgentRunnerEvent) => void,
+  checkState?: StateChecker,
 ): Promise<AgentRunResult> => {
   const threadId = sessionHandle.sessionId;
   let turnCount = 0;
-  let shouldContinue = true;
 
   // Emit session_started
   const startEvent: AgentRunnerEvent = {
@@ -48,8 +59,11 @@ export const runAgentSession = async (
   };
   onEvent(startEvent);
 
+  // Use AbortController for proper timeout/cleanup
+  const abortController = new AbortController();
+
   try {
-    while (shouldContinue && turnCount < config.agent.max_turns) {
+    while (turnCount < config.agent.max_turns) {
       turnCount++;
 
       const turnId = `turn-${turnCount}`;
@@ -58,10 +72,22 @@ export const runAgentSession = async (
       // Determine prompt
       const prompt = turnCount === 1 ? initialPrompt : buildContinuationPrompt(turnCount, issue);
 
-      // Run the prompt with timeout
-      const turnResult = await runTurnWithTimeout(sessionHandle, prompt, config.pi.turn_timeout_ms);
+      // Run the prompt with timeout and abort support
+      const turnResult = await runTurnWithTimeout(
+        sessionHandle,
+        prompt,
+        config.pi.turn_timeout_ms,
+        abortController.signal,
+      );
+
+      if (turnResult === 'aborted') {
+        // Disposed externally or timed out with abort
+        return { status: 'cancelled', turns: turnCount, error: 'Session aborted' };
+      }
 
       if (turnResult === 'timed_out') {
+        // Abort the session to prevent side effects
+        abortController.abort();
         onEvent({
           event: 'turn_ended_with_error',
           timestamp: new Date().toISOString(),
@@ -70,7 +96,6 @@ export const runAgentSession = async (
           turn_id: turnId,
           error: 'turn_timeout',
         });
-
         return { status: 'timed_out', turns: turnCount, error: 'Turn timed out' };
       }
 
@@ -83,7 +108,6 @@ export const runAgentSession = async (
           turn_id: turnId,
           error: 'Agent turn failed',
         });
-
         return { status: 'failed', turns: turnCount, error: 'Agent turn failed' };
       }
 
@@ -96,13 +120,31 @@ export const runAgentSession = async (
         turn_id: turnId,
       });
 
-      // After a successful turn, check if we should continue
-      // In practice, the orchestrator re-checks the issue state
-      // For now, we always continue if max_turns not reached
+      // SPEC 7.1: After each turn, re-check tracker state
+      if (checkState) {
+        const currentState = await checkState(issue.id);
+        if (currentState === null) {
+          // State check failed; continue running
+          continue;
+        }
+
+        const stateLower = currentState.toLowerCase();
+        const activeStates = config.tracker.active_states.map((s) => s.toLowerCase());
+
+        if (!activeStates.includes(stateLower)) {
+          // Issue is no longer active — stop the turn loop
+          return {
+            status: 'completed',
+            turns: turnCount,
+            error: `Issue state changed to ${currentState}`,
+          };
+        }
+      }
     }
 
     return { status: 'completed', turns: turnCount, error: null };
   } finally {
+    // Always dispose the session (SPEC 10.6)
     try {
       await sessionHandle.dispose();
     } catch {
@@ -111,21 +153,54 @@ export const runAgentSession = async (
   }
 };
 
+/**
+ * Run a single turn with timeout and abort support.
+ * Uses AbortController to properly cancel underlying work on timeout.
+ */
 const runTurnWithTimeout = async (
   sessionHandle: AgentSessionHandle,
   prompt: string,
   timeoutMs: number,
-): Promise<'success' | 'timed_out' | 'failed'> => {
+  abortSignal: AbortSignal,
+): Promise<'success' | 'timed_out' | 'failed' | 'aborted'> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
   const timeoutPromise = new Promise<'timed_out'>((resolve) => {
-    setTimeout(() => resolve('timed_out'), timeoutMs);
+    timer = setTimeout(() => resolve('timed_out'), timeoutMs);
   });
 
-  const turnPromise = sessionHandle
-    .prompt(prompt)
-    .then(() => 'success' as const)
-    .catch(() => 'failed' as const);
+  const abortPromise = new Promise<'aborted'>((resolve) => {
+    const onAbort = () => {
+      resolve('aborted');
+      abortSignal.removeEventListener('abort', onAbort);
+    };
+    if (abortSignal.aborted) {
+      resolve('aborted');
+    } else {
+      abortSignal.addEventListener('abort', onAbort);
+    }
+  });
 
-  return Promise.race([turnPromise, timeoutPromise]);
+  try {
+    const turnPromise = sessionHandle
+      .prompt(prompt)
+      .then(() => 'success' as const)
+      .catch(() => 'failed' as const);
+
+    const result = await Promise.race([turnPromise, timeoutPromise, abortPromise]);
+
+    // Clean up timer on non-timeout paths
+    if (result !== 'timed_out' && timer !== undefined) {
+      clearTimeout(timer);
+    }
+
+    return result;
+  } finally {
+    // Always clear the timer (SPEC 10.6)
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 };
 
 /**
@@ -168,51 +243,16 @@ export const createMockSessionHandle = (
 
 /**
  * Create a real pi SDK session handle for production use.
- * Falls back to mock session if the SDK is unavailable.
- *
- * SPEC 10.1: Uses @earendil-works/pi-coding-agent SDK exports.
- * SPEC 10.1: Validates cwd == workspace path before starting.
+ * Returns error if pi SDK is unavailable — NO mock fallback in production.
  */
 export const createRealSessionHandle = async (
   workspacePath: string,
   config: EffectiveConfig,
-  subagentRole?: SubagentRole,
 ): Promise<AgentSessionHandle> => {
-  // Apply subagent role configuration if specified
-  const effectiveConfig = subagentRole
-    ? {
-        ...config,
-        pi: {
-          ...config.pi,
-          thinking: subagentRole === 'oracle' ? 'high' : config.pi.thinking,
-        },
-      }
-    : config;
-
-  try {
-    const { createPiSessionHandle } = await import('./createPiSession.js');
-    const tools = [
-      ...effectiveConfig.pi.tools,
-      'ticket_get',
-      'ticket_comment',
-      'ticket_transition',
-    ];
-    return await createPiSessionHandle({
-      workspacePath,
-      config: effectiveConfig,
-      tools,
-    });
-  } catch {
-    // Graceful fallback to mock on import/initialization failure
-    return createMockSessionHandle('success');
+  const { createPiSessionHandle } = await import('./createPiSession.js');
+  const result = await createPiSessionHandle({ workspacePath, config });
+  if (result.type === 'error') {
+    throw new Error(result.error);
   }
-};
-
-/**
- * Build a prompt with optional subagent role prefix.
- */
-export const buildPromptWithRole = (basePrompt: string, role?: SubagentRole): string => {
-  if (!role) return basePrompt;
-  const prefix = buildSubagentPrefix(role);
-  return prefix + basePrompt;
+  return result.handle;
 };

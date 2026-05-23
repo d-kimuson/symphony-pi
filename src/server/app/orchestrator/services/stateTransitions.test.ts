@@ -50,6 +50,7 @@ const baseConfig: EffectiveConfig = {
     turn_timeout_ms: 3600000,
     stall_timeout_ms: 300000,
   },
+  prompt_template: null,
   server: { port: 48484, host: '127.0.0.1' },
 };
 

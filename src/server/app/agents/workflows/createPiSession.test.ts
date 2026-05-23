@@ -47,61 +47,53 @@ const testConfig: EffectiveConfig = {
 };
 
 describe('createPiSessionHandle', () => {
-  it('falls back to mock session when SDK import fails', async () => {
-    const handle = await createPiSessionHandle({
+  it('returns error result when SDK is unavailable', async () => {
+    const result = await createPiSessionHandle({
       workspacePath: '/tmp/test-workspace',
       config: testConfig,
-      tools: ['read', 'bash'],
     });
 
-    expect(handle.sessionId).toContain('mock-session');
-    expect(handle.prompt).toBeDefined();
-    expect(handle.dispose).toBeDefined();
-    expect(handle.events).toBeDefined();
+    expect(result.type).toBe('error');
+    // assert error content
+    const errorMessage = result.type === 'error' && result.error !== undefined;
+    expect(errorMessage).toBe(true);
   });
 
-  it('creates session with valid sessionId', async () => {
-    const handle = await createPiSessionHandle({
+  it('returns error type for each invocation', async () => {
+    const r1 = await createPiSessionHandle({
       workspacePath: '/tmp/test-workspace',
       config: testConfig,
-      tools: ['read'],
     });
+    expect(r1.type).toBe('error');
 
-    expect(typeof handle.sessionId).toBe('string');
-    expect(handle.sessionId.length).toBeGreaterThan(0);
+    const r2 = await createPiSessionHandle({
+      workspacePath: '/tmp/test-workspace',
+      config: testConfig,
+    });
+    expect(r2.type).toBe('error');
   });
 
-  it('creates prompt method that resolves', async () => {
-    const handle = await createPiSessionHandle({
+  it('handles minimal config', async () => {
+    const result = await createPiSessionHandle({
       workspacePath: '/tmp/test-workspace',
       config: testConfig,
-      tools: ['read'],
     });
-
-    await expect(handle.prompt('test message')).resolves.toBeUndefined();
+    expect(result.type).toBe('error');
   });
 
-  it('supports event subscription and unsubscription', async () => {
-    const handle = await createPiSessionHandle({
-      workspacePath: '/tmp/test-workspace',
+  it('handles workspace path correctly', async () => {
+    const result = await createPiSessionHandle({
+      workspacePath: '/tmp/custom-workspace',
       config: testConfig,
-      tools: ['read'],
     });
-
-    const handler = vi.fn();
-    const unsubscribe = handle.events.subscribe(handler);
-
-    expect(typeof unsubscribe).toBe('function');
-    unsubscribe();
+    expect(result.type).toBe('error');
   });
 
-  it('disposes session cleanly', async () => {
-    const handle = await createPiSessionHandle({
+  it('produces consistent error results', async () => {
+    const result = await createPiSessionHandle({
       workspacePath: '/tmp/test-workspace',
       config: testConfig,
-      tools: ['read'],
     });
-
-    await expect(handle.dispose()).resolves.toBeUndefined();
+    expect(result.type).toBe('error');
   });
 });

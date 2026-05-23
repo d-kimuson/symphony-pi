@@ -194,7 +194,7 @@ const runDispatchWorker = async (
 ): Promise<void> => {
   try {
     // Run after_create hook for newly created workspaces (SPEC 9.4)
-    if (isNewWorkspace && config.hooks.after_create) {
+    if (isNewWorkspace && config.hooks.after_create !== null && config.hooks.after_create !== '') {
       const result = await runAfterCreateHook(
         { path: workspacePath, workspace_key: entry.issue_identifier, created_now: true },
         config,

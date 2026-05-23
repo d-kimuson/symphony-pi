@@ -172,7 +172,9 @@ export const bootstrap = async (
     void tick();
 
     // Schedule repeated ticks
-    pollTimer = setInterval(tick, cfg.polling.interval_ms);
+    pollTimer = setInterval(() => {
+      void tick();
+    }, cfg.polling.interval_ms);
   };
 
   startPollLoop(config);

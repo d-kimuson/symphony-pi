@@ -8,6 +8,9 @@ import { createPiSessionHandle } from './createPiSession.js';
 vi.mock('@earendil-works/pi-coding-agent', () => ({
   createAgentSession: vi.fn().mockRejectedValue(new Error('SDK not available')),
   defineTool: vi.fn((tool: unknown) => tool),
+  AuthStorage: { create: vi.fn(() => ({})), fromStorage: vi.fn(), inMemory: vi.fn() },
+  ModelRegistry: { create: vi.fn(() => ({})), inMemory: vi.fn() },
+  SessionManager: { create: vi.fn(() => ({})), open: vi.fn(), resume: vi.fn() },
 }));
 
 const testConfig: EffectiveConfig = {

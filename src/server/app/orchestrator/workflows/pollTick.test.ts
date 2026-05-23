@@ -138,6 +138,7 @@ describe('pollTick', () => {
         sessionId: 'test-session',
         prompt: () => Promise.resolve(),
         dispose: () => Promise.resolve(),
+        abort: () => Promise.resolve(),
         events: { subscribe: () => () => {} },
       }),
     );

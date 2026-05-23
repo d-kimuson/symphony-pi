@@ -10,6 +10,8 @@ export type AgentSessionHandle = {
   readonly sessionId: string;
   prompt: (message: string) => Promise<void>;
   dispose: () => Promise<void>;
+  /** Abort the in-flight prompt and session. Used by reconciliation. */
+  abort: () => Promise<void>;
   events: {
     subscribe: (handler: (event: unknown) => void) => () => void;
   };
@@ -62,6 +64,20 @@ export const runAgentSession = async (
 
   // Use AbortController for proper timeout/cleanup
   const abortController = new AbortController();
+
+  // Listen for external abort signal (from reconciliation) and abort session
+  let abortListener: (() => void) | undefined;
+  if (signal !== undefined) {
+    abortListener = () => {
+      void sessionHandle.abort();
+      abortController.abort();
+    };
+    signal.addEventListener('abort', abortListener, { once: true });
+    // If already aborted, abort immediately
+    if (signal.aborted) {
+      abortListener();
+    }
+  }
 
   try {
     while (turnCount < config.agent.max_turns) {
@@ -150,6 +166,10 @@ export const runAgentSession = async (
 
     return { status: 'completed', turns: turnCount, error: null };
   } finally {
+    // Remove external abort listener to prevent leaks
+    if (abortListener !== undefined && signal !== undefined) {
+      signal.removeEventListener('abort', abortListener);
+    }
     // Always dispose the session (SPEC 10.6)
     try {
       await sessionHandle.dispose();
@@ -237,6 +257,10 @@ export const createMockSessionHandle = (
         resolve();
       }),
     dispose: () => {
+      handlers.clear();
+      return Promise.resolve();
+    },
+    abort: () => {
       handlers.clear();
       return Promise.resolve();
     },

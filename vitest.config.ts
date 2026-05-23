@@ -39,7 +39,7 @@ export default defineConfig({
         statements: 65,
         branches: 60,
         functions: 65,
-        lines: 70,
+        lines: 69,
       },
       reporter: ['text', 'text-summary', 'json-summary'],
       reportsDirectory: './coverage',

@@ -22,7 +22,9 @@ export const fetchIssues = async (_config: EffectiveConfig): Promise<readonly Is
   }
   try {
     return await trackerAdapter.fetchCandidateIssues();
-  } catch {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[symphony] fetchIssues failed: ${msg}`);
     return null;
   }
 };

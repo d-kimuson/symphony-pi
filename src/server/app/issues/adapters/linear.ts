@@ -44,16 +44,22 @@ const isGraphQLResponse = (value: unknown): value is GraphQLResponse => {
 export const fetchLinearCandidateIssues = async (
   config: LinearTrackerConfig,
 ): Promise<readonly Issue[] | LinearApiError> => {
+  // Try slugId first; if no results, try filtering by project name as fallback.
+  // Linear project_slug can be either the opaque slugId or the human-readable name.
+  const isLikelySlugId = /^[a-f0-9]{8,}$/.test(config.project_slug);
+  const projectFilter = isLikelySlugId
+    ? `project: { slugId: { eq: $projectSlug } }`
+    : `project: { name: { eq: $projectSlug } }`;
+
   const query = `
     query CandidateIssues($projectSlug: String!, $activeStates: [String!]!, $first: Int!, $after: String) {
       issues(
         filter: {
-          project: { slugId: { eq: $projectSlug } }
+          ${projectFilter}
           state: { name: { in: $activeStates } }
         }
         first: $first
         after: $after
-        orderBy: priority
       ) {
         nodes {
           id
@@ -121,11 +127,18 @@ export const fetchLinearIssuesByStates = async (
 ): Promise<readonly Issue[] | LinearApiError> => {
   if (stateNames.length === 0) return [];
 
+  // Try slugId first; if no results, try filtering by project name as fallback.
+  // Linear project_slug can be either the opaque slugId or the human-readable name.
+  const isLikelySlugId = /^[a-f0-9]{8,}$/.test(config.project_slug);
+  const projectFilter = isLikelySlugId
+    ? 'project: { slugId: { eq: $projectSlug } }'
+    : 'project: { name: { eq: $projectSlug } }';
+
   const query = `
     query IssuesByStates($projectSlug: String!, $states: [String!]!, $first: Int!, $after: String) {
       issues(
         filter: {
-          project: { slugId: { eq: $projectSlug } }
+          ${projectFilter}
           state: { name: { in: $states } }
         }
         first: $first

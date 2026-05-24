@@ -3,12 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackerAdapter } from '../adapters/trackerAdapter.ts';
 import type { Issue } from '../model.ts';
 
-import {
-  setTrackerAdapter,
-  fetchIssues,
-  fetchIssueStatesByIds,
-  fetchIssuesByStates,
-} from './fetchIssues.ts';
+import { fetchIssues, fetchIssueStatesByIds, fetchIssuesByStates } from './fetchIssues.ts';
 
 const makeAdapter = (behavior: 'success' | 'error' | 'null' = 'success'): TrackerAdapter => ({
   fetchCandidateIssues: async () => {
@@ -72,45 +67,40 @@ const makeAdapter = (behavior: 'success' | 'error' | 'null' = 'success'): Tracke
 });
 
 describe('fetchIssues', () => {
-  it('returns null when adapter is null', async () => {
-    setTrackerAdapter(null as unknown as TrackerAdapter);
-    const result = await fetchIssues({} as never);
-    expect(result).toBeNull();
-  });
-
   it('delegates to adapter', async () => {
-    setTrackerAdapter(makeAdapter('success'));
-    const result = await fetchIssues({} as never);
+    const result = await fetchIssues(makeAdapter('success'));
     expect(result).not.toBeNull();
     if (result) expect(result.length).toBe(1);
   });
 
   it('returns null on adapter error', async () => {
-    setTrackerAdapter(makeAdapter('error'));
-    const result = await fetchIssues({} as never);
+    const result = await fetchIssues(makeAdapter('error'));
     expect(result).toBeNull();
   });
 });
 
 describe('fetchIssueStatesByIds', () => {
-  it('returns null when adapter null', async () => {
-    setTrackerAdapter(null as unknown as TrackerAdapter);
-    const result = await fetchIssueStatesByIds({} as never, []);
-    expect(result).toBeNull();
+  it('returns empty array when no ids requested', async () => {
+    const result = await fetchIssueStatesByIds(makeAdapter('success'), []);
+    expect(result).toEqual([]);
   });
 
   it('delegates to adapter', async () => {
-    setTrackerAdapter(makeAdapter('success'));
-    const result = await fetchIssueStatesByIds({} as never, ['i1']);
+    const result = await fetchIssueStatesByIds(makeAdapter('success'), ['i1']);
     expect(result).not.toBeNull();
     if (result) expect(result[0]?.state).toBe('In Progress');
   });
 });
 
 describe('fetchIssuesByStates', () => {
+  it('returns rows on success', async () => {
+    const result = await fetchIssuesByStates(makeAdapter('success'), ['Done']);
+    expect(result).not.toBeNull();
+    if (result) expect(result[0]?.identifier).toBe('T-2');
+  });
+
   it('returns null on adapter error', async () => {
-    setTrackerAdapter(makeAdapter('error'));
-    const result = await fetchIssuesByStates({} as never, ['Done']);
+    const result = await fetchIssuesByStates(makeAdapter('error'), ['Done']);
     expect(result).toBeNull();
   });
 });

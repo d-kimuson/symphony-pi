@@ -1,50 +1,42 @@
 /** Side-effectful issue fetching and reconciliation workflows. */
 
-import type { EffectiveConfig } from '../../config/model.ts';
 import type { TrackerAdapter } from '../adapters/trackerAdapter.ts';
 import type { Issue } from '../model.ts';
 
-// Tracker adapter factory will be set during startup
-let trackerAdapter: TrackerAdapter | null = null;
-
-export const setTrackerAdapter = (adapter: TrackerAdapter): void => {
-  trackerAdapter = adapter;
+const formatPrefix = (projectId?: string): string => {
+  return projectId === undefined ? '[symphony]' : `[symphony][project:${projectId}]`;
 };
 
 /**
  * Fetch candidate issues from the configured tracker.
- * Returns null when adapter is not initialized (operator-visible error).
  */
-export const fetchIssues = async (_config: EffectiveConfig): Promise<readonly Issue[] | null> => {
-  if (trackerAdapter === null) {
-    console.error('[symphony] fetchIssues: tracker adapter is not initialized. Skipping dispatch.');
-    return null;
-  }
+export const fetchIssues = async (
+  trackerAdapter: TrackerAdapter,
+  projectId?: string,
+): Promise<readonly Issue[] | null> => {
   try {
     return await trackerAdapter.fetchCandidateIssues();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[symphony] fetchIssues failed: ${msg}`);
+    console.error(`${formatPrefix(projectId)} fetchIssues failed: ${msg}`);
     return null;
   }
 };
 
 /**
  * Fetch current issue states by IDs for active-run reconciliation (SPEC 8.5 Part B).
- * Returns null when adapter is not initialized.
  */
 export const fetchIssueStatesByIds = async (
-  _config: EffectiveConfig,
+  trackerAdapter: TrackerAdapter,
   issueIds: readonly string[],
+  projectId?: string,
 ): Promise<readonly Issue[] | null> => {
-  if (trackerAdapter === null) {
-    console.error('[symphony] fetchIssueStatesByIds: tracker adapter is not initialized.');
-    return null;
-  }
   if (issueIds.length === 0) return [];
   try {
     return await trackerAdapter.fetchIssueStatesByIds(issueIds);
-  } catch {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`${formatPrefix(projectId)} fetchIssueStatesByIds failed: ${msg}`);
     return null;
   }
 };
@@ -53,16 +45,15 @@ export const fetchIssueStatesByIds = async (
  * Fetch issues by their states (for startup terminal cleanup).
  */
 export const fetchIssuesByStates = async (
-  _config: EffectiveConfig,
+  trackerAdapter: TrackerAdapter,
   stateNames: readonly string[],
+  projectId?: string,
 ): Promise<readonly Issue[] | null> => {
-  if (trackerAdapter === null) {
-    console.error('[symphony] fetchIssuesByStates: tracker adapter is not initialized.');
-    return null;
-  }
   try {
     return await trackerAdapter.fetchIssuesByStates(stateNames);
-  } catch {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`${formatPrefix(projectId)} fetchIssuesByStates failed: ${msg}`);
     return null;
   }
 };

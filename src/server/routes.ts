@@ -1,20 +1,15 @@
 import type { Hono } from 'hono';
 
 import type { HonoAppType, HonoContext } from './app.ts';
+import type { ProjectRegistry } from './app/runtime/model.ts';
 
 import { mountStatusRoutes } from './app/status/routes.ts';
 
-export const routes = (app: HonoAppType) => {
-  app.get('/info', (c) => {
-    return c.json({
-      status: 'healthy',
-      server: 'symphony-pi',
-    } as const);
-  });
+const renderDashboard = (registry: ProjectRegistry): string => {
+  const projectCount = registry.list().length;
+  const modeLabel = registry.mode === 'multi-project' ? 'multi-project' : 'single-project';
 
-  // Dashboard at /
-  app.get('/', (c) => {
-    return c.html(`<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -34,22 +29,32 @@ export const routes = (app: HonoAppType) => {
 </head>
 <body>
   <h1>🎵 Symphony Pi</h1>
-  <p class="subtitle">Coding agent orchestration service</p>
+  <p class="subtitle">Coding agent orchestration service · ${modeLabel} · ${projectCount} project(s)</p>
   <div class="endpoints">
     <div class="endpoint">
       <span class="method">GET</span>
       <span class="path">/api/v1/state</span>
-      <p class="desc">Runtime snapshot: running sessions, retry queue, token totals, rate limits</p>
+      <p class="desc">Aggregate runtime snapshot for all projects</p>
     </div>
     <div class="endpoint">
       <span class="method">GET</span>
-      <span class="path">/api/v1/:identifier</span>
-      <p class="desc">Issue details by identifier (e.g. ABC-123)</p>
+      <span class="path">/api/v1/projects</span>
+      <p class="desc">Project list and per-project summary</p>
+    </div>
+    <div class="endpoint">
+      <span class="method">GET</span>
+      <span class="path">/api/v1/projects/:projectId/state</span>
+      <p class="desc">Project-specific runtime snapshot</p>
+    </div>
+    <div class="endpoint">
+      <span class="method">POST</span>
+      <span class="path">/api/v1/projects/:projectId/refresh</span>
+      <p class="desc">Trigger a project-specific poll tick</p>
     </div>
     <div class="endpoint">
       <span class="method">POST</span>
       <span class="path">/api/v1/refresh</span>
-      <p class="desc">Trigger a poll tick refresh</p>
+      <p class="desc">Trigger refresh for all projects</p>
     </div>
     <div class="endpoint">
       <span class="method">GET</span>
@@ -58,10 +63,22 @@ export const routes = (app: HonoAppType) => {
     </div>
   </div>
 </body>
-</html>`);
+</html>`;
+};
+
+export const routes = (app: HonoAppType, registry: ProjectRegistry) => {
+  app.get('/info', (c) => {
+    return c.json({
+      status: 'healthy',
+      server: 'symphony-pi',
+      mode: registry.mode,
+      projects: registry.list().length,
+    } as const);
   });
 
-  mountStatusRoutes(app);
+  app.get('/', (c) => c.html(renderDashboard(registry)));
+
+  mountStatusRoutes(app, registry);
   return app;
 };
 

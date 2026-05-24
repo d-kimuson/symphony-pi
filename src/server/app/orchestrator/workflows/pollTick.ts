@@ -2,6 +2,7 @@
 
 import type { AgentRunnerEvent } from '../../agents/model.ts';
 import type { EffectiveConfig } from '../../config/model.ts';
+import type { TrackerAdapter } from '../../issues/adapters/trackerAdapter.ts';
 import type { Issue } from '../../issues/model.ts';
 import type { OrchestratorState, RunningEntry } from '../model.ts';
 
@@ -34,18 +35,20 @@ export type SessionHandleFactory = (
   issueIdentifier: string,
 ) => Promise<AgentSessionHandle>;
 
-// Module-level storage for workflow prompt template (set during bootstrap)
-let workflowPromptTemplate: string | null = null;
-
-export const setWorkflowPromptTemplate = (template: string): void => {
-  workflowPromptTemplate = template;
+export type PollTickDeps = {
+  readonly tracker: TrackerAdapter;
+  readonly promptTemplate: string | null;
+  readonly createSessionHandle: SessionHandleFactory;
+  readonly notify: () => void;
+  readonly projectId?: string;
 };
 
-// Injected by bootstrap
-let sessionFactory: SessionHandleFactory | null = null;
+const defaultPromptTemplate = `Work on issue {{ issue.identifier }}: {{ issue.title }}
 
-export const setSessionHandleFactory = (factory: SessionHandleFactory): void => {
-  sessionFactory = factory;
+{% if issue.description %}{{ issue.description }}{% endif %}`;
+
+const formatPrefix = (projectId?: string): string => {
+  return projectId === undefined ? '[symphony]' : `[symphony][project:${projectId}]`;
 };
 
 /**
@@ -55,35 +58,28 @@ export const setSessionHandleFactory = (factory: SessionHandleFactory): void => 
 export const pollTick = async (
   state: OrchestratorState,
   config: EffectiveConfig,
-  onNotify: () => void,
+  deps: PollTickDeps,
 ): Promise<void> => {
-  // 1. Reconcile running issues
-  await reconcileRunningIssues(state, config);
+  await reconcileRunningIssues(state, config, deps);
 
-  // 2. Fetch candidate issues
-  const candidates = await fetchIssues(config);
+  const candidates = await fetchIssues(deps.tracker, deps.projectId);
   if (candidates === null) {
-    // Fetch failed, skip dispatch for this tick
     return;
   }
 
-  console.log(`[symphony] Poll tick: ${candidates.length} candidate(s)`);
+  console.log(`${formatPrefix(deps.projectId)} Poll tick: ${candidates.length} candidate(s)`);
 
-  // 3. Sort by dispatch priority
   const sorted = sortCandidatesByPriority(candidates);
 
-  // 4. Dispatch eligible issues while slots remain
   for (const issue of sorted) {
     if (!hasGlobalSlots(config, state.running)) break;
     if (!hasStateSlots(issue.state, config, state.running)) continue;
     if (!isDispatchEligible(issue, config, state.running, state.claimed)) continue;
 
-    // Claim and dispatch
-    dispatchIssue(state, issue, config);
+    dispatchIssue(state, issue, config, deps);
   }
 
-  // 5. Notify observability
-  onNotify();
+  deps.notify();
 };
 
 /**
@@ -93,15 +89,14 @@ export const pollTick = async (
 const reconcileRunningIssues = async (
   state: OrchestratorState,
   config: EffectiveConfig,
+  deps: PollTickDeps,
 ): Promise<void> => {
   const runningIds = Array.from(state.running.keys());
 
   if (runningIds.length === 0) return;
 
-  // Part A: Stall detection
   for (const [issueId, entry] of state.running) {
     if (isSessionStalled(entry, config.pi.stall_timeout_ms, null)) {
-      // Abort the worker then queue retry
       entry.abortController.abort();
       const retry = createRetryEntry(
         issueId,
@@ -117,11 +112,9 @@ const reconcileRunningIssues = async (
     }
   }
 
-  // Part B: Tracker state refresh (SPEC 8.5 Part B)
-  const refreshed = await fetchIssueStatesByIds(config, runningIds);
+  const refreshed = await fetchIssueStatesByIds(deps.tracker, runningIds, deps.projectId);
 
   if (refreshed === null) {
-    // Fetch failed: keep workers running, retry next tick (SPEC 8.5)
     return;
   }
 
@@ -133,24 +126,21 @@ const reconcileRunningIssues = async (
 
     switch (action.action) {
       case 'stop_and_cleanup': {
-        // Terminal state: abort worker + clean workspace (SPEC 8.5)
         entry.abortController.abort();
         state.running.delete(issue.id);
         state.claimed.delete(issue.id);
         state.completed.add(issue.id);
-        // Actually clean the workspace (SPEC 8.5, 8.6)
         void removeWorkspace(entry.workspace_path, config).catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[symphony] Workspace cleanup failed for ${issue.id}: ${msg}`);
+          console.warn(
+            `${formatPrefix(deps.projectId)} Workspace cleanup failed for ${issue.id}: ${msg}`,
+          );
         });
         break;
       }
       case 'keep_running':
-        // Active state: update in-memory issue snapshot (SPEC 8.5)
-        // Keep running, snapshot is updated via the running entry
         break;
       case 'stop_without_cleanup': {
-        // Neither active nor terminal: abort worker without workspace cleanup (SPEC 8.5)
         entry.abortController.abort();
         state.running.delete(issue.id);
         state.claimed.delete(issue.id);
@@ -166,13 +156,17 @@ const reconcileRunningIssues = async (
  * Dispatch an issue: create workspace, run hooks, build prompt, start agent.
  * Runs asynchronously (fire-and-forget from the poll tick perspective).
  */
-const dispatchIssue = (state: OrchestratorState, issue: Issue, config: EffectiveConfig): void => {
+const dispatchIssue = (
+  state: OrchestratorState,
+  issue: Issue,
+  config: EffectiveConfig,
+  deps: PollTickDeps,
+): void => {
   state.claimed.add(issue.id);
 
-  // Create workspace
   const wsResult = ensureWorkspace(issue.identifier, config.workspace.root);
   if (wsResult.type === 'error') {
-    console.error(`[symphony] dispatch failed: ${wsResult.error}`);
+    console.error(`${formatPrefix(deps.projectId)} dispatch failed: ${wsResult.error}`);
     state.claimed.delete(issue.id);
     return;
   }
@@ -193,9 +187,8 @@ const dispatchIssue = (state: OrchestratorState, issue: Issue, config: Effective
   };
   state.running.set(issue.id, entry);
 
-  console.log(`[symphony] Dispatching ${issue.identifier}: ${issue.title}`);
+  console.log(`${formatPrefix(deps.projectId)} Dispatching ${issue.identifier}: ${issue.title}`);
 
-  // Fire-and-forget: run the agent in the background
   void runDispatchWorker(
     state,
     entry,
@@ -204,6 +197,7 @@ const dispatchIssue = (state: OrchestratorState, issue: Issue, config: Effective
     config,
     wsResult.type === 'created',
     abortController.signal,
+    deps,
   );
 };
 
@@ -219,55 +213,58 @@ const runDispatchWorker = async (
   config: EffectiveConfig,
   isNewWorkspace: boolean,
   signal: AbortSignal,
+  deps: PollTickDeps,
 ): Promise<void> => {
-  // Check if already aborted
   if (signal.aborted) {
-    handleWorkerExit(state, entry.issue_id, false, 'Cancelled by reconciliation', config);
+    handleWorkerExit(
+      state,
+      entry.issue_id,
+      false,
+      'Cancelled by reconciliation',
+      config,
+      deps.projectId,
+    );
     return;
   }
 
   try {
-    // Run after_create hook for newly created workspaces (SPEC 9.4)
     if (isNewWorkspace && config.hooks.after_create !== null && config.hooks.after_create !== '') {
       const result = await runAfterCreateHook(
         { path: workspacePath, workspace_key: entry.issue_identifier, created_now: true },
         config,
       );
       if (result.type === 'failure' || result.type === 'timeout') {
-        console.error(`[symphony] after_create hook failed: ${result.error}`);
+        console.error(`${formatPrefix(deps.projectId)} after_create hook failed: ${result.error}`);
         handleWorkerExit(
           state,
           entry.issue_id,
           false,
           `after_create hook: ${result.error}`,
           config,
+          deps.projectId,
         );
         return;
       }
     }
 
-    // Run before_run hook (SPEC 9.4)
     const beforeResult = await runBeforeRunHook(workspacePath, config);
     if (beforeResult.type === 'failure' || beforeResult.type === 'timeout') {
-      console.error(`[symphony] before_run hook failed: ${beforeResult.error}`);
+      console.error(
+        `${formatPrefix(deps.projectId)} before_run hook failed: ${beforeResult.error}`,
+      );
       handleWorkerExit(
         state,
         entry.issue_id,
         false,
         `before_run hook: ${beforeResult.error}`,
         config,
+        deps.projectId,
       );
       return;
     }
 
-    // Build prompt from workflow template (SPEC 12)
-    const template =
-      workflowPromptTemplate ??
-      `Work on issue {{ issue.identifier }}: {{ issue.title }}
-
-{% if issue.description %}{{ issue.description }}{% endif %}`;
+    const template = deps.promptTemplate ?? defaultPromptTemplate;
     const promptResult = renderPrompt(template, { issue, attempt: entry.attempt });
-    let promptContent: string;
     if (promptResult.type !== 'rendered') {
       handleWorkerExit(
         state,
@@ -275,37 +272,40 @@ const runDispatchWorker = async (
         false,
         `Prompt render error: ${promptResult.message}`,
         config,
+        deps.projectId,
       );
       return;
     }
-    promptContent = promptResult.content;
-
-    // Create pi session handle
-    if (sessionFactory === null) {
-      handleWorkerExit(state, entry.issue_id, false, 'Session factory not initialized', config);
-      return;
-    }
+    const promptContent = promptResult.content;
 
     let sessionHandle: AgentSessionHandle;
     try {
-      sessionHandle = await sessionFactory(workspacePath, config, issue.identifier);
+      sessionHandle = await deps.createSessionHandle(workspacePath, config, issue.identifier);
       console.log(
-        `[symphony] Agent session created: ${sessionHandle.sessionId} for ${issue.identifier}`,
+        `${formatPrefix(deps.projectId)} Agent session created: ${sessionHandle.sessionId} for ${issue.identifier}`,
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[symphony] Session creation failed for ${issue.identifier}: ${msg}`);
-      handleWorkerExit(state, entry.issue_id, false, `Session creation failed: ${msg}`, config);
+      console.error(
+        `${formatPrefix(deps.projectId)} Session creation failed for ${issue.identifier}: ${msg}`,
+      );
+      handleWorkerExit(
+        state,
+        entry.issue_id,
+        false,
+        `Session creation failed: ${msg}`,
+        config,
+        deps.projectId,
+      );
       return;
     }
 
-    // Run agent session (SPEC 10)
     const onEvent = (_event: AgentRunnerEvent): void => {
-      // Events are logged by the runner; we could accumulate token usage here
+      return;
     };
 
     const checkState = async (issueId: string): Promise<string | null> => {
-      const refreshed = await fetchIssueStatesByIds(config, [issueId]);
+      const refreshed = await fetchIssueStatesByIds(deps.tracker, [issueId], deps.projectId);
       if (refreshed === null || refreshed.length === 0) return null;
       return refreshed[0]?.state ?? null;
     };
@@ -320,18 +320,18 @@ const runDispatchWorker = async (
       signal,
     );
 
-    // Run after_run hook (SPEC 9.4 — failure logged but ignored)
     const afterResult = await runAfterRunHook(workspacePath, config);
     if (afterResult.type === 'failure' || afterResult.type === 'timeout') {
-      console.warn(`[symphony] after_run hook failed (ignored): ${afterResult.error}`);
+      console.warn(
+        `${formatPrefix(deps.projectId)} after_run hook failed (ignored): ${afterResult.error}`,
+      );
     }
 
-    // Handle completion
     const success = runResult.status === 'completed';
-    handleWorkerExit(state, entry.issue_id, success, runResult.error, config);
+    handleWorkerExit(state, entry.issue_id, success, runResult.error, config, deps.projectId);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    handleWorkerExit(state, entry.issue_id, false, `Worker error: ${msg}`, config);
+    handleWorkerExit(state, entry.issue_id, false, `Worker error: ${msg}`, config, deps.projectId);
   }
 };
 
@@ -341,6 +341,7 @@ export const handleWorkerExit = (
   success: boolean,
   error: string | null,
   config: EffectiveConfig,
+  projectId?: string,
 ): void => {
   const entry = state.running.get(issueId);
   state.running.delete(issueId);
@@ -349,8 +350,6 @@ export const handleWorkerExit = (
 
   if (success) {
     state.completed.add(issueId);
-
-    // Schedule continuation retry (1 second) — SPEC 7.1, 8.4
     state.claimed.delete(issueId);
     const retry = createRetryEntry(
       issueId,
@@ -361,8 +360,8 @@ export const handleWorkerExit = (
       null,
     );
     state.retry_attempts.set(issueId, retry);
+    console.log(`${formatPrefix(projectId)} Worker completed for ${entry.issue_identifier}`);
   } else {
-    // Schedule exponential backoff retry — SPEC 8.4
     state.claimed.delete(issueId);
     const attempt = (entry.attempt ?? 0) + 1;
     const retry = createRetryEntry(
@@ -374,6 +373,9 @@ export const handleWorkerExit = (
       error,
     );
     state.retry_attempts.set(issueId, retry);
+    console.warn(
+      `${formatPrefix(projectId)} Worker failed for ${entry.issue_identifier}: ${error ?? 'unknown error'}`,
+    );
   }
 };
 
@@ -385,6 +387,7 @@ export const handleRetryFire = async (
   state: OrchestratorState,
   issueId: string,
   config: EffectiveConfig,
+  deps: PollTickDeps,
 ): Promise<void> => {
   const retryEntry = state.retry_attempts.get(issueId);
   if (retryEntry === undefined) return;
@@ -392,10 +395,8 @@ export const handleRetryFire = async (
   state.retry_attempts.delete(issueId);
   state.claimed.delete(issueId);
 
-  // Re-fetch active candidates and check eligibility (SPEC 8.4)
-  const candidates = await fetchIssues(config);
+  const candidates = await fetchIssues(deps.tracker, deps.projectId);
   if (candidates === null) {
-    // Fetch failed — requeue with error
     const retry = createRetryEntry(
       issueId,
       retryEntry.identifier,
@@ -408,21 +409,16 @@ export const handleRetryFire = async (
     return;
   }
 
-  const issue = candidates.find((c) => c.id === issueId);
+  const issue = candidates.find((candidate) => candidate.id === issueId);
   if (issue === undefined) {
-    // Issue not found in candidates — release claim (SPEC 8.4)
     return;
   }
 
-  // Check if still eligible
   if (!isDispatchEligible(issue, config, state.running, state.claimed)) {
-    // No longer active — release claim
     return;
   }
 
-  // Check if slots available
   if (!hasGlobalSlots(config, state.running)) {
-    // No slots — requeue (SPEC 8.4)
     const retry = createRetryEntry(
       issueId,
       retryEntry.identifier,
@@ -435,6 +431,5 @@ export const handleRetryFire = async (
     return;
   }
 
-  // Re-dispatch
-  dispatchIssue(state, issue, config);
+  dispatchIssue(state, issue, config, deps);
 };

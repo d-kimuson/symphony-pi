@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
+import { createHonoApp } from './app.ts';
 import { startServer } from './server.ts';
 
 describe('startServer', () => {
@@ -8,31 +9,19 @@ describe('startServer', () => {
   });
 
   it('returns server and cleanUp', async () => {
-    vi.stubGlobal('process', {
-      ...process,
-      on: vi.fn(),
-    });
-
-    const result = await startServer();
+    const result = await startServer({ app: createHonoApp() });
     expect(result).toHaveProperty('server');
     expect(result).toHaveProperty('cleanUp');
     expect(typeof result.cleanUp).toBe('function');
 
     result.cleanUp();
-    vi.unstubAllGlobals();
   });
 
   it('can be called with preferredPort option', async () => {
-    vi.stubGlobal('process', {
-      ...process,
-      on: vi.fn(),
-    });
-
-    const result = await startServer({ preferredPort: 48484 });
+    const result = await startServer({ app: createHonoApp(), preferredPort: 48484 });
     expect(result).toHaveProperty('server');
     expect(result).toHaveProperty('cleanUp');
 
     result.cleanUp();
-    vi.unstubAllGlobals();
   });
 });

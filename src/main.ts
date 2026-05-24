@@ -1,56 +1,133 @@
-/**
- * Symphony-pi entry point.
- *
- * Complete startup sequence:
- *   1. Parse CLI args
- *   2. Discover WORKFLOW.md
- *   3. Load and validate config
- *   4. Create tracker adapter
- *   5. Start HTTP server + dashboard
- *   6. Initialize orchestrator + poll loop
- *   7. Start dynamic reload
- *   8. Startup terminal cleanup
- *   9. Graceful shutdown on SIGINT/SIGTERM
- */
+/** Symphony-pi entry point. */
 
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, basename } from 'node:path';
 
+import { createHonoApp } from './server/app.ts';
 import { createRealSessionHandle } from './server/app/agents/workflows/runAgentSession.ts';
-import { bootstrap } from './server/app/bootstrap.ts';
+import { bootstrapProjectRuntime } from './server/app/bootstrap.ts';
 import { createTrackerAdapter } from './server/app/issues/adapters/adapterFactory.ts';
-import { setSessionHandleFactory } from './server/app/orchestrator/workflows/pollTick.ts';
+import { createProjectRegistry, type ProjectRuntime } from './server/app/runtime/model.ts';
 import { parseCliArgs } from './server/cli.ts';
+import { routes } from './server/routes.ts';
+import { startServer } from './server/server.ts';
+import {
+  inferProjectRootFromWorkflow,
+  sanitizeProjectId,
+} from './server/serviceConfig/services/projectConfig.ts';
+import { loadServiceConfig } from './server/serviceConfig/workflows/loadServiceConfig.ts';
 
-const args = parseCliArgs(process.argv);
-
-// Set session factory before bootstrap (dependency injection)
-setSessionHandleFactory(createRealSessionHandle);
-
-// Resolve workflow path — validate existence for explicit paths
-const workflowPath = resolve(args.workflowPath);
-if (args.workflowPath !== './WORKFLOW.md' && !existsSync(workflowPath)) {
-  console.error(`[symphony] WORKFLOW.md not found at: ${workflowPath}`);
-  console.error('[symphony] Provide a valid path or omit the argument to use ./WORKFLOW.md');
+const exitWithError = (message: string): never => {
+  console.error(message);
   process.exit(1);
-}
+};
 
-bootstrap({
-  workflowPath,
-  preferredPort: args.port,
-  createTrackerAdapter,
-  createSessionHandle: createRealSessionHandle,
-})
-  .then((result) => {
-    if ('type' in result) {
-      console.error(`[symphony] Bootstrap failed at phase "${result.phase}": ${result.message}`);
-      process.exit(1);
+const bootstrapSingleProject = async (workflowPath: string): Promise<ProjectRuntime> => {
+  const resolvedWorkflowPath = resolve(workflowPath);
+  const projectRoot = inferProjectRootFromWorkflow(resolvedWorkflowPath);
+  const projectId = sanitizeProjectId(basename(projectRoot));
+
+  const result = await bootstrapProjectRuntime({
+    projectId,
+    projectRoot,
+    workflowPath: resolvedWorkflowPath,
+    createTrackerAdapter,
+    createSessionHandle: createRealSessionHandle,
+  });
+
+  if ('type' in result) {
+    return exitWithError(
+      `[symphony] Bootstrap failed at phase "${result.phase}": ${result.message}`,
+    );
+  }
+
+  return result;
+};
+
+const bootstrapConfiguredProjects = async (
+  configPath: string,
+): Promise<readonly ProjectRuntime[]> => {
+  const configResult = loadServiceConfig(configPath);
+  if (configResult.type !== 'loaded') {
+    return exitWithError(`[symphony] Failed to load service config: ${configResult.error}`);
+  }
+
+  const serviceConfig = configResult.config;
+  const runtimes: ProjectRuntime[] = [];
+  for (const project of serviceConfig.projects) {
+    const runtime = await bootstrapProjectRuntime({
+      projectId: project.id,
+      projectRoot: project.root,
+      workflowPath: project.workflowPath,
+      createTrackerAdapter,
+      createSessionHandle: createRealSessionHandle,
+    });
+
+    if ('type' in runtime) {
+      return exitWithError(
+        `[symphony] Bootstrap failed for project "${project.id}" at phase "${runtime.phase}": ${runtime.message}`,
+      );
     }
 
-    console.log('[symphony] Service started successfully');
-  })
-  .catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[symphony] Fatal bootstrap error: ${message}`);
-    process.exit(1);
+    runtimes.push(runtime);
+  }
+
+  return runtimes;
+};
+
+const installShutdownHandlers = (
+  runtimes: readonly ProjectRuntime[],
+  shutdownServer: () => void,
+): void => {
+  let shuttingDown = false;
+
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    await Promise.all(runtimes.map(async (runtime) => runtime.shutdown()));
+    shutdownServer();
+    console.log('[symphony] Shutdown complete');
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown();
   });
+  process.on('SIGTERM', () => {
+    void shutdown();
+  });
+};
+
+const main = async (): Promise<void> => {
+  const args = parseCliArgs(process.argv);
+
+  const runtimes =
+    args.mode === 'config'
+      ? await bootstrapConfiguredProjects(args.configPath)
+      : [await bootstrapSingleProject(args.workflowPath)];
+
+  const mode = runtimes.length > 1 ? 'multi-project' : 'single-project';
+  const registry = createProjectRegistry(mode, runtimes);
+  const app = createHonoApp();
+  routes(app, registry);
+
+  const firstRuntime = runtimes[0];
+  if (firstRuntime === undefined) {
+    return exitWithError('[symphony] No project runtimes were created.');
+  }
+
+  const firstConfig = firstRuntime.getConfig();
+  const serverResult = await startServer({
+    app,
+    preferredPort: args.port ?? firstConfig.server.port,
+    host: firstConfig.server.host,
+  });
+
+  installShutdownHandlers(runtimes, serverResult.cleanUp);
+  console.log(`[symphony] Service started successfully (${mode}, ${runtimes.length} project(s))`);
+};
+
+void main().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`[symphony] Fatal bootstrap error: ${message}`);
+  process.exit(1);
+});

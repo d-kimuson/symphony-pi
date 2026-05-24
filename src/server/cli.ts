@@ -1,18 +1,21 @@
 /**
  * CLI argument parsing using Commander.
- * Implements SPEC 17.7 CLI contract:
- *   - Positional workflow path [workflow-path] (default: ./WORKFLOW.md)
- *   - --port <number> option
- *   - --help auto-generated
- *   - Validates explicit workflow path exists
+ * Supports either a single workflow path or a multi-project config JSON.
  */
 
 import { Command } from 'commander';
 
-export type CliArgs = {
-  workflowPath: string;
-  port?: number;
-};
+export type CliArgs =
+  | {
+      readonly mode: 'workflow';
+      readonly workflowPath: string;
+      readonly port?: number;
+    }
+  | {
+      readonly mode: 'config';
+      readonly configPath: string;
+      readonly port?: number;
+    };
 
 /**
  * Parse process.argv into typed CLI options using Commander.
@@ -24,7 +27,8 @@ export const parseCliArgs = (argv: readonly string[]): CliArgs => {
     .name('symphony')
     .description('Long-running automation service that runs coding agents for issue tracker work')
     .version('0.0.0')
-    .argument('[workflow-path]', 'Path to WORKFLOW.md', './WORKFLOW.md')
+    .argument('[workflow-path]', 'Path to WORKFLOW.md')
+    .option('-c, --config <path>', 'Path to multi-project service config JSON')
     .option('-p, --port <number>', 'Preferred HTTP server port (default: 48484)', (val) => {
       const parsed = parseInt(val, 10);
       if (Number.isNaN(parsed) || parsed <= 0 || parsed > 65535) {
@@ -32,16 +36,26 @@ export const parseCliArgs = (argv: readonly string[]): CliArgs => {
       }
       return parsed;
     })
-    .parse([...argv] as Parameters<typeof program.parse>[0]);
+    .parse([...argv]);
 
-  const opts: { port?: number } = program.opts();
-  // Commander's processedArgs is typed as any[]; we narrow safely
-  const args: readonly unknown[] = program.processedArgs;
-  const positional: unknown = args[0];
-  const workflowPath = typeof positional === 'string' ? positional : './WORKFLOW.md';
+  const opts = program.opts<{ config?: string; port?: number }>();
+  const workflowPath = program.args[0];
+
+  if (workflowPath !== undefined && opts.config !== undefined) {
+    throw new Error('Cannot specify both a workflow path and --config.');
+  }
+
+  if (opts.config !== undefined) {
+    return {
+      mode: 'config',
+      configPath: opts.config,
+      port: opts.port,
+    };
+  }
 
   return {
-    workflowPath,
+    mode: 'workflow',
+    workflowPath: workflowPath ?? './WORKFLOW.md',
     port: opts.port,
   };
 };

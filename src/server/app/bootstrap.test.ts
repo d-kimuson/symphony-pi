@@ -4,12 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   watchFile: vi.fn(),
-}));
-
-vi.mock('../server.js', () => ({
-  startServer: vi
-    .fn()
-    .mockResolvedValue({ port: 48484, cleanUp: vi.fn(), server: { close: vi.fn() } }),
+  unwatchFile: vi.fn(),
 }));
 
 vi.mock('./config/workflows/loadConfig.js', () => ({ loadConfig: vi.fn() }));
@@ -17,31 +12,22 @@ vi.mock('./config/workflows/dynamicReload.js', () => ({
   startDynamicReload: vi.fn().mockReturnValue(() => {}),
 }));
 vi.mock('./issues/workflows/fetchIssues.js', () => ({
-  setTrackerAdapter: vi.fn(),
   fetchIssuesByStates: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('./status/routes.js', () => ({
-  setOrchestratorState: vi.fn(),
-  setRefreshTrigger: vi.fn(),
 }));
 vi.mock('./orchestrator/workflows/pollTick.js', () => ({
   pollTick: vi.fn().mockResolvedValue(undefined),
-  setSessionHandleFactory: vi.fn(),
-  setWorkflowPromptTemplate: vi.fn(),
+  handleRetryFire: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('./workspaces/workflows/ensureWorkspace.js', () => ({
-  ensureWorkspace: vi.fn(),
   removeWorkspace: vi.fn().mockResolvedValue(undefined),
-  runAfterCreateHook: vi.fn().mockResolvedValue({ type: 'ok' }),
-  runBeforeRunHook: vi.fn().mockResolvedValue({ type: 'ok' }),
-  runAfterRunHook: vi.fn().mockResolvedValue({ type: 'ok' }),
 }));
 
 import type { EffectiveConfig, TrackerConfig } from './config/model.ts';
 import type { TrackerAdapter } from './issues/adapters/trackerAdapter.ts';
 
-import { bootstrap } from './bootstrap.ts';
+import { bootstrapProjectRuntime } from './bootstrap.ts';
 import { loadConfig } from './config/workflows/loadConfig.ts';
+import { pollTick } from './orchestrator/workflows/pollTick.ts';
 
 const testConfig: EffectiveConfig = {
   tracker: {
@@ -96,7 +82,7 @@ const mockHandle = {
   events: { subscribe: vi.fn().mockReturnValue(() => {}) },
 };
 
-describe('bootstrap', () => {
+describe('bootstrapProjectRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(existsSync).mockReturnValue(true);
@@ -105,7 +91,9 @@ describe('bootstrap', () => {
 
   it('returns error when WORKFLOW.md not found', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
-    const result = await bootstrap({
+    const result = await bootstrapProjectRuntime({
+      projectId: 'alpha',
+      projectRoot: '/missing',
       workflowPath: '/missing/WORKFLOW.md',
       createTrackerAdapter: makeTrackerAdapter,
       createSessionHandle: vi.fn().mockResolvedValue(mockHandle),
@@ -118,7 +106,9 @@ describe('bootstrap', () => {
 
   it('returns error when config validation fails', async () => {
     vi.mocked(loadConfig).mockReturnValue({ type: 'error', error: 'Invalid config' });
-    const result = await bootstrap({
+    const result = await bootstrapProjectRuntime({
+      projectId: 'alpha',
+      projectRoot: '/test',
       workflowPath: '/test/WORKFLOW.md',
       createTrackerAdapter: makeTrackerAdapter,
       createSessionHandle: vi.fn().mockResolvedValue(mockHandle),
@@ -129,29 +119,58 @@ describe('bootstrap', () => {
     }
   });
 
-  it('creates tracker adapter and returns state on success', async () => {
+  it('creates a project runtime on success', async () => {
     const adapter = makeTrackerAdapter(testConfig.tracker);
     const createAdapter = vi.fn().mockReturnValue(adapter);
-    const result = await bootstrap({
+    const result = await bootstrapProjectRuntime({
+      projectId: 'alpha',
+      projectRoot: '/test',
       workflowPath: '/test/WORKFLOW.md',
       createTrackerAdapter: createAdapter,
       createSessionHandle: vi.fn().mockResolvedValue(mockHandle),
     });
     expect(result).toBeDefined();
-    // BootstrapResult has no 'type' field, BootstrapError does
-    const hasError = 'type' in (result as unknown as Record<string, unknown>);
-    if (hasError) throw new Error('Expected success');
-    const success = result as { config: unknown; state: unknown };
-    expect(success.config).toBeDefined();
-    expect(success.state).toBeDefined();
+    if ('type' in result) throw new Error('Expected success');
+    expect(result.projectId).toBe('alpha');
+    expect(result.workflowPath).toBe('/test/WORKFLOW.md');
+    expect(result.getConfig()).toBe(testConfig);
+    expect(result.getState()).toBeDefined();
   });
 
   it('loads config from the workflow path', async () => {
-    await bootstrap({
+    await bootstrapProjectRuntime({
+      projectId: 'alpha',
+      projectRoot: '/custom/path',
       workflowPath: '/custom/path/WORKFLOW.md',
       createTrackerAdapter: makeTrackerAdapter,
       createSessionHandle: vi.fn().mockResolvedValue(mockHandle),
     });
     expect(loadConfig).toHaveBeenCalledWith('/custom/path/WORKFLOW.md');
+  });
+
+  it('refresh triggers pollTick for only that runtime', async () => {
+    const alpha = await bootstrapProjectRuntime({
+      projectId: 'alpha',
+      projectRoot: '/alpha',
+      workflowPath: '/alpha/WORKFLOW.md',
+      createTrackerAdapter: makeTrackerAdapter,
+      createSessionHandle: vi.fn().mockResolvedValue(mockHandle),
+    });
+    const beta = await bootstrapProjectRuntime({
+      projectId: 'beta',
+      projectRoot: '/beta',
+      workflowPath: '/beta/WORKFLOW.md',
+      createTrackerAdapter: makeTrackerAdapter,
+      createSessionHandle: vi.fn().mockResolvedValue(mockHandle),
+    });
+
+    if ('type' in alpha || 'type' in beta) throw new Error('Expected success');
+    vi.mocked(pollTick).mockClear();
+
+    await alpha.refresh();
+
+    expect(pollTick).toHaveBeenCalledTimes(1);
+    const deps = vi.mocked(pollTick).mock.calls[0]?.[2];
+    expect(deps?.projectId).toBe('alpha');
   });
 });

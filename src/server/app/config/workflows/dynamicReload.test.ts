@@ -1,4 +1,4 @@
-import { watchFile } from 'node:fs';
+import { watchFile, unwatchFile } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { startDynamicReload } from './dynamicReload.ts';
@@ -10,6 +10,7 @@ vi.mock('./loadConfig.js', () => ({
 
 vi.mock('node:fs', () => ({
   watchFile: vi.fn(),
+  unwatchFile: vi.fn(),
 }));
 
 describe('startDynamicReload', () => {
@@ -43,13 +44,10 @@ describe('startDynamicReload', () => {
 
     startDynamicReload('/path/to/WORKFLOW.md', onReload, onError);
 
-    // Extract and invoke the listener registered by watchFile
     const calls = vi.mocked(watchFile).mock.calls;
-    // watchFile(path, {interval}, listener) — 3 args at runtime
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const listener = (calls[0] as any)?.[2] as (() => void) | undefined;
-    expect(listener).toBeDefined();
-    if (listener) listener();
+    const listener = calls[0]?.at(-1);
+    expect(typeof listener).toBe('function');
+    if (typeof listener === 'function') listener({} as never, {} as never);
 
     expect(onReload).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
@@ -64,12 +62,21 @@ describe('startDynamicReload', () => {
     startDynamicReload('/path/to/WORKFLOW.md', onReload, onError);
 
     const calls = vi.mocked(watchFile).mock.calls;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const listener = (calls[0] as any)?.[2] as (() => void) | undefined;
-    expect(listener).toBeDefined();
-    if (listener) listener();
+    const listener = calls[0]?.at(-1);
+    expect(typeof listener).toBe('function');
+    if (typeof listener === 'function') listener({} as never, {} as never);
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onReload).not.toHaveBeenCalled();
+  });
+
+  it('cleanup removes the watcher', () => {
+    const cleanup = startDynamicReload(
+      '/path/to/WORKFLOW.md',
+      () => {},
+      () => {},
+    );
+    cleanup();
+    expect(unwatchFile).toHaveBeenCalled();
   });
 });

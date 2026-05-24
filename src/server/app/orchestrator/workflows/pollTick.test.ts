@@ -1,18 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import type { EffectiveConfig } from '../../config/model.ts';
+import type { TrackerAdapter } from '../../issues/adapters/trackerAdapter.ts';
 import type { Issue } from '../../issues/model.ts';
 import type { OrchestratorState, RunningEntry, RetryEntry } from '../model.ts';
 
-import {
-  handleWorkerExit,
-  handleRetryFire,
-  pollTick,
-  setWorkflowPromptTemplate,
-  setSessionHandleFactory,
-} from './pollTick.ts';
+import { handleWorkerExit, handleRetryFire, pollTick, type PollTickDeps } from './pollTick.ts';
 
-// Mocks
 vi.mock('../../issues/workflows/fetchIssues.js', () => ({
   fetchIssues: vi.fn(),
   fetchIssueStatesByIds: vi.fn(),
@@ -130,29 +124,38 @@ const makeRunningEntry = (overrides?: Partial<RunningEntry>): RunningEntry => ({
   ...overrides,
 });
 
+const makeDeps = (): PollTickDeps => ({
+  tracker: {
+    fetchCandidateIssues: () => Promise.resolve([]),
+    fetchIssueStatesByIds: () => Promise.resolve([]),
+    fetchIssuesByStates: () => Promise.resolve([]),
+  } satisfies TrackerAdapter,
+  promptTemplate: 'Work on {{ issue.identifier }}',
+  createSessionHandle: (_wsPath: string, _cfg: EffectiveConfig, _issueId: string) =>
+    Promise.resolve({
+      sessionId: 'test-session',
+      prompt: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+      abort: () => Promise.resolve(),
+      events: { subscribe: () => () => {} },
+    }),
+  notify: vi.fn(),
+  projectId: 'alpha',
+});
+
 describe('pollTick', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setWorkflowPromptTemplate('Work on {{ issue.identifier }}');
-    setSessionHandleFactory((_wsPath: string, _cfg: EffectiveConfig, _issueId: string) =>
-      Promise.resolve({
-        sessionId: 'test-session',
-        prompt: () => Promise.resolve(),
-        dispose: () => Promise.resolve(),
-        abort: () => Promise.resolve(),
-        events: { subscribe: () => () => {} },
-      }),
-    );
-    // Mock removeWorkspace to return a resolved promise
     vi.mocked(removeWorkspace).mockResolvedValue(undefined);
   });
 
   it('skips dispatch when fetch returns null', async () => {
     const state = makeState();
     const config = makeConfig();
+    const deps = makeDeps();
     mockFetchIssues.mockResolvedValue(null);
 
-    await pollTick(state, config, () => {});
+    await pollTick(state, config, deps);
 
     expect(state.running.size).toBe(0);
   });
@@ -160,6 +163,7 @@ describe('pollTick', () => {
   it('dispatches eligible issue when slots available', async () => {
     const state = makeState();
     const config = makeConfig();
+    const deps = makeDeps();
     const issue = makeIssue();
     mockFetchIssues.mockResolvedValue([issue]);
     mockFetchStates.mockResolvedValue([]);
@@ -169,27 +173,19 @@ describe('pollTick', () => {
     });
     mockRenderPrompt.mockReturnValue({ type: 'rendered', content: 'Work on TEST-1' });
     mockRunAgentSession.mockResolvedValue({ status: 'completed', turns: 1, error: null });
-    // Skip hooks
     vi.mocked(runAfterCreateHook).mockResolvedValue({ type: 'success', stdout: '' });
     vi.mocked(runBeforeRunHook).mockResolvedValue({ type: 'success', stdout: '' });
     vi.mocked(runAfterRunHook).mockResolvedValue({ type: 'success', stdout: '' });
 
-    await pollTick(state, config, () => {});
+    await pollTick(state, config, deps);
 
     expect(state.claimed.has('issue-1')).toBe(true);
     expect(state.running.has('issue-1')).toBe(true);
+    expect(deps.notify).toHaveBeenCalled();
   });
 
   it('skips dispatch when no global slots', async () => {
     const state = makeState();
-    state.max_concurrent_agents = 1;
-    // Fill up slots
-    for (let i = 0; i < 10; i++) {
-      state.running.set(
-        `r${i}`,
-        makeRunningEntry({ issue_id: `r${i}`, issue_identifier: `T-${i}` }),
-      );
-    }
     const config = makeConfig({
       agent: {
         max_concurrent_agents: 0,
@@ -198,12 +194,18 @@ describe('pollTick', () => {
         max_concurrent_agents_by_state: {},
       },
     });
+    const deps = makeDeps();
+    for (let i = 0; i < 10; i++) {
+      state.running.set(
+        `r${i}`,
+        makeRunningEntry({ issue_id: `r${i}`, issue_identifier: `T-${i}` }),
+      );
+    }
     mockFetchIssues.mockResolvedValue([makeIssue()]);
 
-    await pollTick(state, config, () => {});
+    await pollTick(state, config, deps);
 
-    expect(state.running.size).toBe(10); // No new dispatch
-    // Only existing running entries remain
+    expect(state.running.size).toBe(10);
   });
 
   it('reconcile detects stalled sessions', async () => {
@@ -217,15 +219,15 @@ describe('pollTick', () => {
         turn_timeout_ms: 3600000,
         stall_timeout_ms: 100,
       },
-    }); // 100ms stall
-    const entry = makeRunningEntry({ started_at: Date.now() - 100000 }); // Started 100s ago - definitely stalled
+    });
+    const deps = makeDeps();
+    const entry = makeRunningEntry({ started_at: Date.now() - 100000 });
     state.running.set('issue-1', entry);
     mockFetchIssues.mockResolvedValue([]);
     mockFetchStates.mockResolvedValue([]);
 
-    await pollTick(state, config, () => {});
+    await pollTick(state, config, deps);
 
-    // Stalled session should have been removed and retry queued
     expect(state.running.has('issue-1')).toBe(false);
     expect(state.retry_attempts.has('issue-1')).toBe(true);
   });
@@ -233,13 +235,14 @@ describe('pollTick', () => {
   it('reconcile terminal state stops and cleans workspace', async () => {
     const state = makeState();
     const config = makeConfig();
+    const deps = makeDeps();
     const entry = makeRunningEntry({ started_at: Date.now() - 1000 });
     const abortSpy = vi.spyOn(entry.abortController, 'abort');
     state.running.set('issue-1', entry);
     mockFetchIssues.mockResolvedValue([]);
     mockFetchStates.mockResolvedValue([makeIssue({ id: 'issue-1', state: 'Done' })]);
 
-    await pollTick(state, config, () => {});
+    await pollTick(state, config, deps);
 
     expect(abortSpy).toHaveBeenCalled();
     expect(state.running.has('issue-1')).toBe(false);
@@ -249,13 +252,13 @@ describe('pollTick', () => {
   it('fetch failure keeps workers running during reconcile', async () => {
     const state = makeState();
     const config = makeConfig();
+    const deps = makeDeps();
     state.running.set('issue-1', makeRunningEntry({ started_at: Date.now() - 1000 }));
     mockFetchIssues.mockResolvedValue([makeIssue()]);
-    mockFetchStates.mockResolvedValue(null); // State fetch fails
+    mockFetchStates.mockResolvedValue(null);
 
-    await pollTick(state, config, () => {});
+    await pollTick(state, config, deps);
 
-    // Worker should still be running (reconcile failure keeps workers)
     expect(state.running.has('issue-1')).toBe(true);
   });
 });
@@ -268,7 +271,7 @@ describe('handleWorkerExit', () => {
     state.claimed.add('issue-1');
 
     const before = Date.now();
-    handleWorkerExit(state, 'issue-1', true, null, config);
+    handleWorkerExit(state, 'issue-1', true, null, config, 'alpha');
 
     expect(state.running.has('issue-1')).toBe(false);
     expect(state.completed.has('issue-1')).toBe(true);
@@ -276,7 +279,6 @@ describe('handleWorkerExit', () => {
     expect(retry).toBeDefined();
     if (!retry) throw new Error('retry missing');
     expect(retry.attempt).toBe(1);
-    // Continuation retry should be ~1000ms from now
     expect(retry.due_at_ms - before).toBeGreaterThanOrEqual(900);
     expect(retry.due_at_ms - before).toBeLessThanOrEqual(1100);
   });
@@ -288,15 +290,14 @@ describe('handleWorkerExit', () => {
     state.claimed.add('issue-1');
 
     const before = Date.now();
-    handleWorkerExit(state, 'issue-1', false, 'timeout error', config);
+    handleWorkerExit(state, 'issue-1', false, 'timeout error', config, 'alpha');
 
     expect(state.running.has('issue-1')).toBe(false);
     const retry = state.retry_attempts.get('issue-1');
     expect(retry).toBeDefined();
     if (!retry) throw new Error('retry missing');
-    expect(retry.attempt).toBe(3); // previous 2 + 1
+    expect(retry.attempt).toBe(3);
     expect(retry.error).toBe('timeout error');
-    // Exponential backoff for attempt 3: min(10000 * 2^(3-1), 300000) = 40000
     expect(retry.due_at_ms - before).toBeGreaterThanOrEqual(39900);
     expect(retry.due_at_ms - before).toBeLessThanOrEqual(40100);
   });
@@ -304,8 +305,7 @@ describe('handleWorkerExit', () => {
   it('no-op when entry not in running map', () => {
     const state = makeState();
     const config = makeConfig();
-    // Should not throw
-    handleWorkerExit(state, 'non-existent', true, null, config);
+    handleWorkerExit(state, 'non-existent', true, null, config, 'alpha');
     expect(state.retry_attempts.size).toBe(0);
   });
 });
@@ -314,6 +314,7 @@ describe('handleRetryFire', () => {
   it('re-dispatches when candidate found and eligible', async () => {
     const state = makeState();
     const config = makeConfig();
+    const deps = makeDeps();
     const issue = makeIssue();
     mockFetchIssues.mockResolvedValue([issue]);
     mockEnsureWs.mockReturnValue({
@@ -332,16 +333,16 @@ describe('handleRetryFire', () => {
     };
     state.retry_attempts.set('issue-1', retryEntry);
 
-    await handleRetryFire(state, 'issue-1', config);
+    await handleRetryFire(state, 'issue-1', config, deps);
 
     expect(state.retry_attempts.has('issue-1')).toBe(false);
-    // Should re-dispatch
     expect(state.running.has('issue-1')).toBe(true);
   });
 
   it('releases when issue not found in candidates', async () => {
     const state = makeState();
     const config = makeConfig();
+    const deps = makeDeps();
     mockFetchIssues.mockResolvedValue([makeIssue({ id: 'other' })]);
 
     const retryEntry: RetryEntry = {
@@ -353,7 +354,7 @@ describe('handleRetryFire', () => {
     };
     state.retry_attempts.set('issue-1', retryEntry);
 
-    await handleRetryFire(state, 'issue-1', config);
+    await handleRetryFire(state, 'issue-1', config, deps);
 
     expect(state.retry_attempts.has('issue-1')).toBe(false);
     expect(state.running.has('issue-1')).toBe(false);
@@ -369,7 +370,7 @@ describe('handleRetryFire', () => {
         max_concurrent_agents_by_state: {},
       },
     });
-    // Fill up slots
+    const deps = makeDeps();
     for (let i = 0; i < 10; i++) {
       state.running.set(
         `r${i}`,
@@ -387,7 +388,7 @@ describe('handleRetryFire', () => {
     };
     state.retry_attempts.set('issue-1', retryEntry);
 
-    await handleRetryFire(state, 'issue-1', config);
+    await handleRetryFire(state, 'issue-1', config, deps);
 
     expect(state.retry_attempts.has('issue-1')).toBe(true);
     expect(state.retry_attempts.get('issue-1')?.error).toContain('no available orchestrator slots');
@@ -396,9 +397,9 @@ describe('handleRetryFire', () => {
   it('no-op when retry entry not found', async () => {
     const state = makeState();
     const config = makeConfig();
+    const deps = makeDeps();
 
-    await handleRetryFire(state, 'non-existent', config);
-    // Should not throw and not modify state
+    await handleRetryFire(state, 'non-existent', config, deps);
     expect(state.retry_attempts.size).toBe(0);
   });
 });

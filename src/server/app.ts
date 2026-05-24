@@ -4,6 +4,6 @@ export type HonoContext = {
   Variables: Record<string, never>;
 };
 
-export const honoApp = new Hono<HonoContext>();
+export type HonoAppType = Hono<HonoContext>;
 
-export type HonoAppType = typeof honoApp;
+export const createHonoApp = (): HonoAppType => new Hono<HonoContext>();

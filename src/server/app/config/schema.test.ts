@@ -90,8 +90,31 @@ describe('validateConfig', () => {
     expect(validateConfig(jiraConfig)).toEqual([]);
   });
 
+  it('returns empty for valid github config', () => {
+    const githubConfig: EffectiveConfig = {
+      ...baseConfig,
+      tracker: {
+        kind: 'github',
+        token: 'token',
+        api_base_url: 'https://api.github.com',
+        owner: 'my-org',
+        repo: 'sample-a',
+        state_source: 'labels',
+        close_on_terminal: false,
+        active_states: ['agent-ready'],
+        terminal_states: ['done', 'closed'],
+        handoff_states: ['human-review'],
+        transition_states: ['agent-ready', 'done', 'closed', 'human-review'],
+      },
+    };
+    expect(validateConfig(githubConfig)).toEqual([]);
+  });
+
   it('reports unsupported tracker kind', () => {
-    const config = { ...baseConfig, tracker: { kind: 'github' } } as unknown as EffectiveConfig;
+    const config = {
+      ...baseConfig,
+      tracker: { kind: 'not-supported' },
+    } as unknown as EffectiveConfig;
     const errors = validateConfig(config);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0]).toContain('Unsupported tracker kind');
@@ -181,6 +204,86 @@ describe('validateConfig', () => {
     expect(validateConfig(config)).toContain(
       'Either tracker.project_key or tracker.jql is required for Jira',
     );
+  });
+
+  it('reports missing token for github', () => {
+    const config: EffectiveConfig = {
+      ...baseConfig,
+      tracker: {
+        kind: 'github',
+        token: '',
+        api_base_url: 'https://api.github.com',
+        owner: 'my-org',
+        repo: 'sample-a',
+        state_source: 'labels',
+        close_on_terminal: false,
+        active_states: ['agent-ready'],
+        terminal_states: ['done'],
+        handoff_states: [],
+        transition_states: ['agent-ready', 'done'],
+      },
+    };
+    expect(validateConfig(config)).toContain('Missing tracker.token (required for GitHub)');
+  });
+
+  it('reports missing owner for github', () => {
+    const config: EffectiveConfig = {
+      ...baseConfig,
+      tracker: {
+        kind: 'github',
+        token: 'token',
+        api_base_url: 'https://api.github.com',
+        owner: '',
+        repo: 'sample-a',
+        state_source: 'labels',
+        close_on_terminal: false,
+        active_states: ['agent-ready'],
+        terminal_states: ['done'],
+        handoff_states: [],
+        transition_states: ['agent-ready', 'done'],
+      },
+    };
+    expect(validateConfig(config)).toContain('Missing tracker.owner (required for GitHub)');
+  });
+
+  it('reports missing repo for github', () => {
+    const config: EffectiveConfig = {
+      ...baseConfig,
+      tracker: {
+        kind: 'github',
+        token: 'token',
+        api_base_url: 'https://api.github.com',
+        owner: 'my-org',
+        repo: '',
+        state_source: 'labels',
+        close_on_terminal: false,
+        active_states: ['agent-ready'],
+        terminal_states: ['done'],
+        handoff_states: [],
+        transition_states: ['agent-ready', 'done'],
+      },
+    };
+    expect(validateConfig(config)).toContain('Missing tracker.repo (required for GitHub)');
+  });
+
+  it('reports invalid state_source for github', () => {
+    const config = {
+      ...baseConfig,
+      tracker: {
+        kind: 'github',
+        token: 'token',
+        api_base_url: 'https://api.github.com',
+        owner: 'my-org',
+        repo: 'sample-a',
+        state_source: 'project_v2',
+        close_on_terminal: false,
+        active_states: ['agent-ready'],
+        terminal_states: ['done'],
+        handoff_states: [],
+        transition_states: ['agent-ready', 'done'],
+      },
+    } as unknown as EffectiveConfig;
+    expect(validateConfig(config).join('\n')).toContain('tracker.state_source');
   });
 
   it('reports non-positive max_turns', () => {

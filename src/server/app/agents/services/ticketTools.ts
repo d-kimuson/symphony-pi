@@ -2,10 +2,17 @@
 
 import type {
   EffectiveConfig,
+  GitHubTrackerConfig,
   LinearTrackerConfig,
   JiraTrackerConfig,
 } from '../../config/model.ts';
 import type { Issue } from '../../issues/model.ts';
+
+import {
+  commentOnGitHubIssue,
+  getGitHubIssue,
+  transitionGitHubIssue,
+} from '../../issues/adapters/github.ts';
 
 /**
  * Fetch details for a single issue by its identifier.
@@ -18,7 +25,10 @@ export const ticketGet = async (
     if (config.tracker.kind === 'linear') {
       return await linearGetIssue(issueIdentifier, config.tracker);
     }
-    return await jiraGetIssue(issueIdentifier, config.tracker);
+    if (config.tracker.kind === 'jira') {
+      return await jiraGetIssue(issueIdentifier, config.tracker);
+    }
+    return await githubGetIssue(issueIdentifier, config.tracker);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return { error: `Failed to fetch issue: ${message}` };
@@ -37,7 +47,10 @@ export const ticketComment = async (
     if (config.tracker.kind === 'linear') {
       return await linearComment(issueIdentifier, comment, config.tracker);
     }
-    return await jiraComment(issueIdentifier, comment, config.tracker);
+    if (config.tracker.kind === 'jira') {
+      return await jiraComment(issueIdentifier, comment, config.tracker);
+    }
+    return await githubComment(issueIdentifier, comment, config.tracker);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return { error: `Comment failed: ${message}` };
@@ -65,11 +78,59 @@ export const ticketTransition = async (
     if (config.tracker.kind === 'linear') {
       return await linearTransition(issueIdentifier, targetState, config.tracker);
     }
-    return await jiraTransition(issueIdentifier, targetState, config.tracker);
+    if (config.tracker.kind === 'jira') {
+      return await jiraTransition(issueIdentifier, targetState, config.tracker);
+    }
+    return await githubTransition(issueIdentifier, targetState, config.tracker);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return { error: `Transition failed: ${message}` };
   }
+};
+
+const githubGetIssue = async (
+  issueIdentifier: string,
+  tracker: GitHubTrackerConfig,
+): Promise<Issue | { readonly error: string }> => {
+  const issue = await getGitHubIssue(issueIdentifier, tracker);
+  return 'id' in issue ? issue : { error: githubErrorMessage(issue) };
+};
+
+const githubComment = async (
+  issueIdentifier: string,
+  comment: string,
+  tracker: GitHubTrackerConfig,
+): Promise<void | { readonly error: string }> => {
+  const result = await commentOnGitHubIssue(issueIdentifier, comment, tracker);
+  if (result === undefined) {
+    return;
+  }
+
+  return { error: githubErrorMessage(result) };
+};
+
+const githubTransition = async (
+  issueIdentifier: string,
+  targetState: string,
+  tracker: GitHubTrackerConfig,
+): Promise<void | { readonly error: string }> => {
+  const result = await transitionGitHubIssue(issueIdentifier, targetState, tracker);
+  if (result === undefined) {
+    return;
+  }
+
+  return { error: githubErrorMessage(result) };
+};
+
+const githubErrorMessage = (result: {
+  readonly type: string;
+  readonly message?: string;
+}): string => {
+  if (typeof result.message === 'string' && result.message.length > 0) {
+    return result.message;
+  }
+
+  return result.type;
 };
 
 // ---- JSON helpers ----

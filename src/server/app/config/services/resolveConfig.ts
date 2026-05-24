@@ -129,6 +129,22 @@ const buildTrackerConfig = (
     };
   }
 
+  if (kind === 'github') {
+    return {
+      kind: 'github',
+      token: resolveGitHubToken(tracker),
+      api_base_url: ensureString(tracker['api_base_url']) ?? 'https://api.github.com',
+      owner: resolveEnvVar(ensureString(tracker['owner']) ?? ''),
+      repo: resolveEnvVar(ensureString(tracker['repo']) ?? ''),
+      state_source: 'labels',
+      close_on_terminal: ensureBoolean(tracker['close_on_terminal']) ?? false,
+      active_states: activeStates,
+      terminal_states: terminalStates,
+      handoff_states: handoffStates,
+      transition_states: transitionStates,
+    };
+  }
+
   return {
     kind: 'linear',
     api_key: resolveApiKey('linear', tracker),
@@ -142,15 +158,23 @@ const buildTrackerConfig = (
   };
 };
 
-const resolveApiKey = (kind: string, tracker: Record<string, unknown>): string => {
+const resolveApiKey = (kind: 'linear' | 'jira', tracker: Record<string, unknown>): string => {
   const rawKey = ensureString(tracker['api_key']) ?? '';
   const resolved = resolveEnvVar(rawKey);
 
   if (resolved.length > 0) return resolved;
 
-  // Try canonical environment variable
   const envVar = kind === 'linear' ? 'LINEAR_API_KEY' : 'JIRA_API_TOKEN';
   return process.env[envVar] ?? '';
+};
+
+const resolveGitHubToken = (tracker: Record<string, unknown>): string => {
+  const tokenField = ensureString(tracker['token']) ?? ensureString(tracker['api_key']) ?? '';
+  const resolved = resolveEnvVar(tokenField);
+
+  if (resolved.length > 0) return resolved;
+
+  return process.env['GITHUB_TOKEN'] ?? '';
 };
 
 // --- Type coercion helpers ---
@@ -163,6 +187,9 @@ const ensureStringOrNull = (value: unknown): string | null =>
 
 const ensureInt = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isInteger(value) ? value : undefined;
+
+const ensureBoolean = (value: unknown): boolean | undefined =>
+  typeof value === 'boolean' ? value : undefined;
 
 const ensurePositiveInt = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || !Number.isInteger(value)) return undefined;

@@ -30,8 +30,22 @@ const jiraTrackerSchema = v.object({
   transition_states: v.array(v.string()),
 });
 
+const githubTrackerSchema = v.object({
+  kind: v.literal('github'),
+  token: v.pipe(v.string(), v.nonEmpty()),
+  api_base_url: v.pipe(v.string(), v.nonEmpty()),
+  owner: v.pipe(v.string(), v.nonEmpty()),
+  repo: v.pipe(v.string(), v.nonEmpty()),
+  state_source: v.literal('labels'),
+  close_on_terminal: v.boolean(),
+  active_states: v.array(v.string()),
+  terminal_states: v.array(v.string()),
+  handoff_states: v.array(v.string()),
+  transition_states: v.array(v.string()),
+});
+
 const configSchema = v.object({
-  tracker: v.union([linearTrackerSchema, jiraTrackerSchema]),
+  tracker: v.union([linearTrackerSchema, jiraTrackerSchema, githubTrackerSchema]),
   polling: v.object({ interval_ms: v.pipe(v.number(), v.integer(), v.minValue(1000)) }),
   workspace: v.object({ root: v.pipe(v.string(), v.nonEmpty()) }),
   hooks: v.object({
@@ -78,7 +92,7 @@ export const validateConfig = (cfg: EffectiveConfig): readonly string[] => {
 
   // Tracker kind check
   const kind = cfg.tracker.kind;
-  if (kind !== 'linear' && kind !== 'jira') {
+  if (kind !== 'linear' && kind !== 'jira' && kind !== 'github') {
     errors.push(`Unsupported tracker kind: ${String(kind)}`);
     return errors;
   }
@@ -96,13 +110,11 @@ export const validateConfig = (cfg: EffectiveConfig): readonly string[] => {
     }
   }
 
-  // API key check
-  if (cfg.tracker.api_key.length === 0) {
-    errors.push('Missing tracker.api_key');
-  }
-
   // Linear-specific checks
   if (kind === 'linear') {
+    if (cfg.tracker.api_key.length === 0) {
+      errors.push('Missing tracker.api_key');
+    }
     if (cfg.tracker.team_key.length === 0) {
       errors.push('Missing tracker.team_key (required for Linear)');
     }
@@ -113,6 +125,9 @@ export const validateConfig = (cfg: EffectiveConfig): readonly string[] => {
 
   // Jira-specific checks
   if (kind === 'jira') {
+    if (cfg.tracker.api_key.length === 0) {
+      errors.push('Missing tracker.api_key');
+    }
     if (cfg.tracker.base_url.length === 0) {
       errors.push('Missing tracker.base_url (required for Jira)');
     }
@@ -123,6 +138,22 @@ export const validateConfig = (cfg: EffectiveConfig): readonly string[] => {
     const hasJql = cfg.tracker.jql !== null && cfg.tracker.jql.length > 0;
     if (!hasKey && !hasJql) {
       errors.push('Either tracker.project_key or tracker.jql is required for Jira');
+    }
+  }
+
+  // GitHub-specific checks
+  if (kind === 'github') {
+    if (cfg.tracker.token.length === 0) {
+      errors.push('Missing tracker.token (required for GitHub)');
+    }
+    if (cfg.tracker.owner.length === 0) {
+      errors.push('Missing tracker.owner (required for GitHub)');
+    }
+    if (cfg.tracker.repo.length === 0) {
+      errors.push('Missing tracker.repo (required for GitHub)');
+    }
+    if (cfg.tracker.state_source !== 'labels') {
+      errors.push('tracker.state_source must be labels for GitHub');
     }
   }
 

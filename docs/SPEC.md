@@ -137,7 +137,7 @@ Symphony is easiest to port when kept in these layers:
 
 ### 3.3 External Dependencies
 
-- Issue tracker API for both supported tracker kinds: `linear` and `jira`.
+- Issue tracker API for all supported tracker kinds: `linear`, `jira`, and `github`.
 - Local filesystem for workspaces and logs.
 - Workspace population tooling used by configured hooks (for example Git CLI, if the workflow uses it).
 - `@earendil-works/pi-coding-agent` package available to the service runtime.
@@ -344,7 +344,7 @@ Fields common to all tracker kinds:
 
 - `kind` (string)
   - REQUIRED for dispatch.
-  - Supported values: `linear`, `jira`.
+  - Supported values: `linear`, `jira`, `github`.
 - `api_key` (string)
   - MAY be a literal token or `$VAR_NAME`.
   - If `$VAR_NAME` resolves to an empty string, treat the key as missing.
@@ -387,6 +387,24 @@ Jira fields (`tracker.kind == "jira"`):
 - `jql` (string)
   - REQUIRED unless `project_key` is provided.
   - When omitted, implementations build JQL from `project_key` and `active_states`.
+
+GitHub fields (`tracker.kind == "github"`):
+
+- `token` (string)
+  - REQUIRED for dispatch. MAY be a literal token or `$VAR_NAME`.
+  - Canonical environment variable: `GITHUB_TOKEN`.
+  - `api_key` MAY be accepted as a backward-compatible fallback input, but `token` is the canonical field.
+- `api_base_url` (string)
+  - Default: `https://api.github.com`
+- `owner` (string)
+  - REQUIRED for dispatch.
+- `repo` (string)
+  - REQUIRED for dispatch.
+- `state_source` (string)
+  - REQUIRED value: `labels`.
+- `close_on_terminal` (boolean)
+  - Default: `false`.
+  - When `true`, `ticket_transition` to a configured terminal state also closes the GitHub issue.
 
 #### 5.3.2 `polling` (object)
 
@@ -606,7 +624,7 @@ Validation checks:
 
 This section is intentionally redundant so a coding agent can implement the config layer quickly.
 
-- `tracker.kind`: string, REQUIRED, supported values `linear` and `jira`
+- `tracker.kind`: string, REQUIRED, supported values `linear`, `jira`, and `github`
 - `tracker.api_key`: string or `$VAR`; canonical env is `LINEAR_API_KEY` for Linear and `JIRA_API_TOKEN` for Jira
 - `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
 - `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
@@ -618,6 +636,12 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `tracker.email`: Jira account email or `$VAR`, REQUIRED when `tracker.kind=jira`; canonical env `JIRA_EMAIL`
 - `tracker.project_key`: Jira project key, REQUIRED when `tracker.kind=jira` unless `tracker.jql` is provided
 - `tracker.jql`: Jira JQL candidate query, REQUIRED when `tracker.kind=jira` unless `tracker.project_key` is provided
+- `tracker.token`: GitHub token or `$VAR`, REQUIRED when `tracker.kind=github`; canonical env `GITHUB_TOKEN`
+- `tracker.api_base_url`: GitHub REST API base URL, default `https://api.github.com` when `tracker.kind=github`
+- `tracker.owner`: GitHub repository owner, REQUIRED when `tracker.kind=github`
+- `tracker.repo`: GitHub repository name, REQUIRED when `tracker.kind=github`
+- `tracker.state_source`: REQUIRED `labels` when `tracker.kind=github`
+- `tracker.close_on_terminal`: boolean, default `false`, optional when `tracker.kind=github`
 - `polling.interval_ms`: integer, default `30000`
 - `workspace.root`: path resolved to absolute, default `<system-temp>/symphony_workspaces`
 - `hooks.after_create`: shell script or null
@@ -1064,7 +1088,7 @@ Policy requirements:
 Ticket tools:
 
 - Ticket write/read tools are part of the agent toolchain, not orchestrator business logic.
-- Linear and Jira tool availability MUST match the active `tracker.kind`.
+- Linear, Jira, and GitHub tool availability MUST match the active `tracker.kind`.
 - Tool credentials MUST be taken from the active Symphony workflow/runtime config; the agent MUST
   NOT be instructed to read raw tracker tokens from disk.
 
@@ -1119,7 +1143,7 @@ Note:
 
 ### 11.1 REQUIRED Operations
 
-An implementation MUST support these tracker adapter operations for both `linear` and `jira`:
+An implementation MUST support these tracker adapter operations for `linear`, `jira`, and `github`:
 
 1. `fetch_candidate_issues()`
    - Return issues in configured active states for the configured project/query.
@@ -1179,7 +1203,31 @@ Jira normalization requirements:
   another issue.
 - `branch_name`: null unless a Jira/dev-status integration exposes deterministic branch metadata.
 
-### 11.4 Normalization Rules
+### 11.4 Query Semantics (GitHub)
+
+GitHub-specific requirements for `tracker.kind == "github"`:
+
+- `tracker.owner` and `tracker.repo` define a fixed repository scope.
+- Initial support uses `tracker.state_source = "labels"` only.
+- Candidate issue fetch MUST return only open issues whose labels map to configured `active_states`.
+- Implementations MAY query one active label at a time and union results by issue number.
+- `fetch_issues_by_states(state_names)` MUST support label-backed states and native `open` / `closed` fallback states.
+- `fetch_issue_states_by_ids(issue_ids)` MAY use repository-scoped issue numbers as normalized ids.
+- Pull requests returned by the GitHub Issues API MUST be excluded from normalized issue results.
+- `ticket_comment` uses the GitHub issue comment API for the configured repository.
+- `ticket_transition` removes existing configured state labels, applies the target state label when the target is label-backed, and MAY close/reopen the issue according to `close_on_terminal` and native `open` / `closed` targets.
+
+GitHub normalization requirements:
+
+- `id`: repository-scoped issue number encoded as a string.
+- `identifier`: `#<issue_number>`.
+- `state`: first matching configured transition-state label; otherwise native `open` / `closed`.
+- `url`: issue `html_url`.
+- `priority`: `null`.
+- `branch_name`: `null`.
+- `blocked_by`: empty list in the initial implementation.
+
+### 11.5 Normalization Rules
 
 Candidate issue normalization SHOULD produce fields listed in Section 4.1.1.
 
@@ -1190,7 +1238,7 @@ Additional normalization details:
 - `priority` -> integer only (non-integers become null).
 - `created_at` and `updated_at` -> parse ISO-8601 timestamps.
 
-### 11.5 Error Handling Contract
+### 11.6 Error Handling Contract
 
 RECOMMENDED error categories:
 
@@ -1209,6 +1257,10 @@ RECOMMENDED error categories:
 - `jira_api_status` (non-2xx HTTP)
 - `jira_unknown_payload`
 - `jira_pagination_error`
+- `github_api_request` (transport failures)
+- `github_api_status` (non-2xx HTTP)
+- `github_unknown_payload`
+- `github_invalid_issue_identifier`
 
 Orchestrator behavior on tracker errors:
 
@@ -1216,7 +1268,7 @@ Orchestrator behavior on tracker errors:
 - Running-state refresh failure: log and keep active workers running.
 - Startup terminal cleanup failure: log warning and continue startup.
 
-### 11.6 Tracker Writes (Important Boundary)
+### 11.7 Tracker Writes (Important Boundary)
 
 Symphony does not require first-class tracker write APIs in the orchestrator.
 
@@ -1940,7 +1992,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - Invalid YAML front matter returns typed error
 - Front matter non-map returns typed error
 - Config defaults apply when defaulted values are missing
-- `tracker.kind` validation enforces supported kinds (`linear`, `jira`)
+- `tracker.kind` validation enforces supported kinds (`linear`, `jira`, `github`)
 - `tracker.api_key` works (including `$VAR` indirection)
 - `$VAR` resolution works for tracker API key and path values
 - `~` path expansion works
@@ -1966,9 +2018,10 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 
 ### 17.3 Issue Tracker Client
 
-- Candidate issue fetch uses active states and the configured Linear project slug or Jira project/JQL
+- Candidate issue fetch uses active states and the configured Linear project slug, Jira project/JQL, or GitHub repository + label mapping
 - Linear query uses the specified project filter field (`slugId`)
 - Jira query uses configured `jql` or builds JQL from `project_key` and `active_states`
+- GitHub candidate query unions repository-scoped open issues across configured active labels and excludes pull requests
 - Empty `fetch_issues_by_states([])` returns empty without API call
 - Pagination preserves order across multiple pages
 - Linear blockers are normalized from inverse relations of type `blocks`
@@ -2008,7 +2061,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - User input / extension UI requests are handled according to the implementation's documented policy and do not stall indefinitely
 - Usage and rate-limit telemetry exposed by pi is extracted
 - Configured non-empty `pi.tools` controls the enabled pi tool allowlist; empty `pi.tools` leaves pi's default tool set unrestricted
-- Required ticket tools (`ticket_get`, `ticket_comment`, `ticket_transition`) are available for both Linear and Jira and scoped to the active ticket/tracker config
+- Required ticket tools (`ticket_get`, `ticket_comment`, `ticket_transition`) are available for Linear, Jira, and GitHub and scoped to the active ticket/tracker config
 - Unsupported tool names fail without stalling the session
 
 ### 17.6 Observability

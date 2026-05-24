@@ -83,6 +83,47 @@ const jiraConfig: EffectiveConfig = {
   prompt_template: '',
 };
 
+const githubConfig: EffectiveConfig = {
+  tracker: {
+    kind: 'github',
+    token: 'test-token',
+    api_base_url: 'https://api.github.com',
+    owner: 'my-org',
+    repo: 'sample-a',
+    state_source: 'labels',
+    close_on_terminal: true,
+    active_states: ['agent-ready', 'in-progress'],
+    terminal_states: ['done', 'closed'],
+    handoff_states: ['human-review'],
+    transition_states: ['agent-ready', 'in-progress', 'human-review', 'done', 'closed'],
+  },
+  polling: { interval_ms: 30000 },
+  workspace: { root: '/tmp/symphony' },
+  hooks: {
+    after_create: null,
+    before_run: null,
+    after_run: null,
+    before_remove: null,
+    timeout_ms: 60000,
+  },
+  agent: {
+    max_concurrent_agents: 10,
+    max_turns: 20,
+    max_retry_backoff_ms: 300000,
+    max_concurrent_agents_by_state: {},
+  },
+  pi: {
+    model: null,
+    thinking: null,
+    tools: ['read', 'bash', 'edit', 'write'],
+    session_dir: null,
+    turn_timeout_ms: 3600000,
+    stall_timeout_ms: 300000,
+  },
+  server: { port: 48484, host: '127.0.0.1' },
+  prompt_template: '',
+};
+
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 afterEach(() => mockFetch.mockReset());
@@ -137,6 +178,19 @@ const getRequestPayload = (
   }
 
   return { query, variables: Object.fromEntries(Object.entries(variablesValue)) };
+};
+
+const getRestRequest = (callIndex = 0): { url: URL; method: string; body: string } => {
+  const [input, init] = mockFetch.mock.calls[callIndex] ?? [];
+  const url = new URL(typeof input === 'string' ? input : input.url);
+  const method =
+    typeof init?.method === 'string'
+      ? init.method
+      : typeof input === 'string'
+        ? 'GET'
+        : input.method;
+  const body = typeof init?.body === 'string' ? init.body : '';
+  return { url, method, body };
 };
 
 describe('ticketGet', () => {
@@ -225,6 +279,33 @@ describe('ticketGet', () => {
     const result = await ticketGet('NONEXIST', jiraConfig);
     expect('error' in result).toBe(true);
   });
+
+  it('returns normalized GitHub issue for repo-scoped identifier', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          number: 123,
+          title: 'GitHub issue',
+          body: 'desc',
+          state: 'open',
+          html_url: 'https://github.com/my-org/sample-a/issues/123',
+          labels: [{ name: 'human-review' }],
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const result = await ticketGet('my-org/sample-a#123', githubConfig);
+
+    if ('error' in result) throw new Error(String(result.error));
+    expect(result).toMatchObject({
+      id: '123',
+      identifier: '#123',
+      state: 'human-review',
+    });
+  });
 });
 
 describe('ticketComment', () => {
@@ -260,6 +341,22 @@ describe('ticketComment', () => {
     const result = await ticketComment('TEST-1', 'x', linearConfig);
 
     expect(result).toBeDefined();
+  });
+
+  it('calls the GitHub issue comment API', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: 1 }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    expect(await ticketComment('#123', 'Hello GitHub', githubConfig)).toBeUndefined();
+
+    const request = getRestRequest(0);
+    expect(request.method).toBe('POST');
+    expect(request.url.pathname).toBe('/repos/my-org/sample-a/issues/123/comments');
+    expect(request.body).toContain('Hello GitHub');
   });
 });
 
@@ -339,5 +436,50 @@ describe('ticketTransition', () => {
     } as Response);
 
     expect(await ticketTransition('TEST-1', 'done', linearConfig)).toBeUndefined();
+  });
+
+  it('replaces GitHub state labels and closes terminal issues', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            number: 123,
+            title: 'GitHub issue',
+            body: 'desc',
+            state: 'open',
+            html_url: 'https://github.com/my-org/sample-a/issues/123',
+            labels: [{ name: 'bug' }, { name: 'in-progress' }],
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ name: 'bug' }, { name: 'done' }]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ number: 123, state: 'closed' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    expect(await ticketTransition('#123', 'done', githubConfig)).toBeUndefined();
+
+    const labelsRequest = getRestRequest(1);
+    expect(labelsRequest.method).toBe('PUT');
+    expect(labelsRequest.url.pathname).toBe('/repos/my-org/sample-a/issues/123/labels');
+    expect(labelsRequest.body).toContain('bug');
+    expect(labelsRequest.body).toContain('done');
+    expect(labelsRequest.body).not.toContain('in-progress');
+
+    const closeRequest = getRestRequest(2);
+    expect(closeRequest.method).toBe('PATCH');
+    expect(closeRequest.url.pathname).toBe('/repos/my-org/sample-a/issues/123');
+    expect(closeRequest.body).toContain('closed');
   });
 });

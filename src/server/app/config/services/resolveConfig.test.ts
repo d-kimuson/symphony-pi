@@ -54,6 +54,49 @@ describe('resolveEffectiveConfig', () => {
     expect(config.tracker.email).toBe('user@example.com');
   });
 
+  it('resolves github config with defaults', () => {
+    const workflow: WorkflowDefinition = {
+      config: {
+        tracker: {
+          kind: 'github',
+          token: 'token',
+          owner: 'my-org',
+          repo: 'sample-a',
+        },
+      },
+      prompt_template: '# Task',
+    };
+
+    const config = resolveEffectiveConfig(workflow, '/repo');
+    expect(config.tracker.kind).toBe('github');
+    if (config.tracker.kind !== 'github') throw new Error('expected github');
+    expect(config.tracker.token).toBe('token');
+    expect(config.tracker.api_base_url).toBe('https://api.github.com');
+    expect(config.tracker.state_source).toBe('labels');
+    expect(config.tracker.close_on_terminal).toBe(false);
+  });
+
+  it('resolves github token from api_key fallback', () => {
+    const workflow: WorkflowDefinition = {
+      config: {
+        tracker: {
+          kind: 'github',
+          api_key: 'fallback-token',
+          owner: 'my-org',
+          repo: 'sample-a',
+          close_on_terminal: true,
+        },
+      },
+      prompt_template: '# Task',
+    };
+
+    const config = resolveEffectiveConfig(workflow, '/repo');
+    expect(config.tracker.kind).toBe('github');
+    if (config.tracker.kind !== 'github') throw new Error('expected github');
+    expect(config.tracker.token).toBe('fallback-token');
+    expect(config.tracker.close_on_terminal).toBe(true);
+  });
+
   it('applies custom pi settings', () => {
     const workflow: WorkflowDefinition = {
       config: {

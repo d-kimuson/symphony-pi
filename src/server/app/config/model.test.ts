@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { EffectiveConfig, JiraTrackerConfig, LinearTrackerConfig } from './model.ts';
+import type {
+  EffectiveConfig,
+  GitHubTrackerConfig,
+  JiraTrackerConfig,
+  LinearTrackerConfig,
+} from './model.ts';
 
 describe('TrackerConfig (discriminated union)', () => {
   it('LinearTrackerConfig has kind linear', () => {
@@ -51,6 +56,24 @@ describe('TrackerConfig (discriminated union)', () => {
     };
     expect(cfg.jql).toBe('project = PROJ');
     expect(cfg.project_key).toBeNull();
+  });
+
+  it('GitHubTrackerConfig has kind github', () => {
+    const cfg: GitHubTrackerConfig = {
+      kind: 'github',
+      token: 'token',
+      api_base_url: 'https://api.github.com',
+      owner: 'my-org',
+      repo: 'sample-a',
+      state_source: 'labels',
+      close_on_terminal: false,
+      active_states: ['agent-ready'],
+      terminal_states: ['done', 'closed'],
+      handoff_states: ['human-review'],
+      transition_states: ['agent-ready', 'done', 'closed', 'human-review'],
+    };
+    expect(cfg.kind).toBe('github');
+    expect(cfg.owner).toBe('my-org');
   });
 });
 

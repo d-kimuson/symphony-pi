@@ -23,6 +23,7 @@
     "@earendil-works/pi-coding-agent": "0.75.4",
     "@fontsource-variable/geist": "5.2.9",
     "@hono/node-server": "2.0.2",
+    "@octokit/rest": "22.0.1",
     "@sinclair/typebox": "0.34.49",
     "@tailwindcss/vite": "4.3.0",
     "@tanstack/react-devtools": "0.10.5",

@@ -1,6 +1,6 @@
 /** Domain types for resolved runtime configuration. */
 
-export type TrackerKind = 'linear' | 'jira';
+export type TrackerKind = 'linear' | 'jira' | 'github';
 
 export type LinearTrackerConfig = {
   readonly kind: 'linear';
@@ -27,7 +27,21 @@ export type JiraTrackerConfig = {
   readonly transition_states: readonly string[];
 };
 
-export type TrackerConfig = LinearTrackerConfig | JiraTrackerConfig;
+export type GitHubTrackerConfig = {
+  readonly kind: 'github';
+  readonly token: string;
+  readonly api_base_url: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly state_source: 'labels';
+  readonly close_on_terminal: boolean;
+  readonly active_states: readonly string[];
+  readonly terminal_states: readonly string[];
+  readonly handoff_states: readonly string[];
+  readonly transition_states: readonly string[];
+};
+
+export type TrackerConfig = LinearTrackerConfig | JiraTrackerConfig | GitHubTrackerConfig;
 
 export type EffectiveConfig = {
   readonly tracker: TrackerConfig;

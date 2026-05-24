@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import type { JiraTrackerConfig, LinearTrackerConfig } from '../../config/model.ts';
+import type {
+  GitHubTrackerConfig,
+  JiraTrackerConfig,
+  LinearTrackerConfig,
+} from '../../config/model.ts';
 import type { Issue } from '../model.ts';
+
+import { createTrackerAdapter } from './adapterFactory.ts';
 
 // Test the type shapes and error discriminated unions
 
@@ -30,6 +36,21 @@ describe('Tracker adapter types', () => {
     expect(err2.status).toBe(400);
     expect(err3.type).toBe('jira_unknown_payload');
     expect(err4.type).toBe('jira_pagination_error');
+  });
+
+  it('GitHubApiError is a discriminated union', () => {
+    const err1 = { type: 'github_api_request' as const, message: 'timeout' };
+    const err2 = { type: 'github_api_status' as const, status: 404, message: 'not found' };
+    const err3 = { type: 'github_unknown_payload' as const };
+    const err4 = {
+      type: 'github_invalid_issue_identifier' as const,
+      message: 'bad identifier',
+    };
+
+    expect(err1.type).toBe('github_api_request');
+    expect(err2.status).toBe(404);
+    expect(err3.type).toBe('github_unknown_payload');
+    expect(err4.type).toBe('github_invalid_issue_identifier');
   });
 
   it('LinearTrackerConfig shape', () => {
@@ -61,6 +82,49 @@ describe('Tracker adapter types', () => {
       transition_states: ['Open', 'Closed'],
     };
     expect(config.kind).toBe('jira');
+  });
+
+  it('GitHubTrackerConfig shape', () => {
+    const config: GitHubTrackerConfig = {
+      kind: 'github',
+      token: 'token',
+      api_base_url: 'https://api.github.com',
+      owner: 'my-org',
+      repo: 'sample-a',
+      state_source: 'labels',
+      close_on_terminal: false,
+      active_states: ['agent-ready'],
+      terminal_states: ['done', 'closed'],
+      handoff_states: ['human-review'],
+      transition_states: ['agent-ready', 'done', 'closed', 'human-review'],
+    };
+    expect(config.kind).toBe('github');
+  });
+});
+
+describe('createTrackerAdapter', () => {
+  it('creates a GitHub adapter for kind github', () => {
+    const adapter = createTrackerAdapter({
+      kind: 'github',
+      token: 'token',
+      api_base_url: 'https://api.github.com',
+      owner: 'my-org',
+      repo: 'sample-a',
+      state_source: 'labels',
+      close_on_terminal: false,
+      active_states: ['agent-ready'],
+      terminal_states: ['done', 'closed'],
+      handoff_states: [],
+      transition_states: ['agent-ready', 'done', 'closed'],
+    });
+
+    expect('type' in adapter).toBe(false);
+    if ('type' in adapter) {
+      throw new Error(adapter.message);
+    }
+    expect(typeof adapter.fetchCandidateIssues).toBe('function');
+    expect(typeof adapter.fetchIssuesByStates).toBe('function');
+    expect(typeof adapter.fetchIssueStatesByIds).toBe('function');
   });
 });
 

@@ -160,7 +160,7 @@ describe('runAgentSession', () => {
     expect(result.turns).toBeLessThanOrEqual(testConfig.agent.max_turns);
   });
 
-  it('returns failed when turn fails', async () => {
+  it('returns failed with the prompt error message when turn fails', async () => {
     const handle = makeSessionHandle('failure');
 
     const result = await runAgentSession(
@@ -173,6 +173,92 @@ describe('runAgentSession', () => {
     );
 
     expect(result.status).toBe('failed');
+    expect(result.error).toBe('Mock failure');
+  });
+
+  it('emits SDK message updates as activity events for stall detection', async () => {
+    const handlers = new Set<(event: unknown) => void>();
+    const handle: AgentSessionHandle = {
+      sessionId: 'activity-session',
+      prompt: () => {
+        for (const handler of handlers) {
+          handler({ type: 'message_update', message: {} });
+        }
+        return Promise.resolve();
+      },
+      dispose: () => Promise.resolve(),
+      abort: () => Promise.resolve(),
+      events: {
+        subscribe: (handler) => {
+          handlers.add(handler);
+          return () => handlers.delete(handler);
+        },
+      },
+    };
+    const events: unknown[] = [];
+
+    await runAgentSession(
+      handle,
+      'Fix the bug',
+      testIssue,
+      { ...testConfig, agent: { ...testConfig.agent, max_turns: 1 } },
+      (event) => events.push(event),
+      vi.fn().mockResolvedValue('Todo'),
+    );
+
+    expect(
+      events.some((event) => {
+        const record = event as Record<string, unknown>;
+        return record['event'] === 'other_message';
+      }),
+    ).toBe(true);
+  });
+
+  it('includes SDK usage in turn_completed events', async () => {
+    const handlers = new Set<(event: unknown) => void>();
+    const handle: AgentSessionHandle = {
+      sessionId: 'usage-session',
+      prompt: () => {
+        for (const handler of handlers) {
+          handler({
+            type: 'turn_end',
+            message: {
+              usage: { input: 10, output: 5, cacheRead: 2, cacheWrite: 1 },
+            },
+          });
+        }
+        return Promise.resolve();
+      },
+      dispose: () => Promise.resolve(),
+      abort: () => Promise.resolve(),
+      events: {
+        subscribe: (handler) => {
+          handlers.add(handler);
+          return () => handlers.delete(handler);
+        },
+      },
+    };
+    const events: unknown[] = [];
+
+    await runAgentSession(
+      handle,
+      'Fix the bug',
+      testIssue,
+      { ...testConfig, agent: { ...testConfig.agent, max_turns: 1 } },
+      (event) => events.push(event),
+      vi.fn().mockResolvedValue('Todo'),
+    );
+
+    const completed = events.find((event) => {
+      const record = event as Record<string, unknown>;
+      return record['event'] === 'turn_completed';
+    }) as Record<string, unknown> | undefined;
+    expect(completed).toMatchObject({
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_read_input_tokens: 2,
+      cache_creation_input_tokens: 1,
+    });
   });
 
   it('calls dispose in all exit paths', async () => {

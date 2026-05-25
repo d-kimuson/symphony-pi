@@ -12,13 +12,13 @@ export type RetryEntry = {
 export type RunningEntry = {
   readonly issue_id: string;
   readonly issue_identifier: string;
-  readonly issue_state: string;
+  issue_state: string;
   readonly workspace_path: string;
   readonly started_at: number;
   readonly attempt: number | null;
-  readonly turn_count: number;
+  turn_count: number;
   /** Last agent event timestamp for stall detection (SPEC 8.5) */
-  readonly last_agent_timestamp?: number;
+  last_agent_timestamp?: number;
   /** Abort controller for cancelling the background worker during reconciliation (SPEC 8.5) */
   readonly abortController: AbortController;
 };
@@ -37,6 +37,6 @@ export type OrchestratorState = {
   readonly claimed: Set<string>;
   readonly retry_attempts: Map<string, RetryEntry>;
   readonly completed: Set<string>;
-  readonly agent_totals: AgentTotals;
-  readonly agent_rate_limits: Record<string, unknown> | null;
+  agent_totals: AgentTotals;
+  agent_rate_limits: Record<string, unknown> | null;
 };

@@ -1,9 +1,19 @@
 import type { Hono } from 'hono';
 
+import { serveStatic } from '@hono/node-server/serve-static';
+
 import type { HonoAppType, HonoContext } from './app.ts';
 import type { ProjectRegistry } from './app/runtime/model.ts';
 
 import { mountStatusRoutes } from './app/status/routes.ts';
+import { shouldServeBuiltWeb, type SymphonyRuntime } from './runtime.ts';
+
+const DEFAULT_WEB_ROOT = 'dist/web';
+
+type RouteOptions = {
+  readonly runtime?: SymphonyRuntime;
+  readonly webRoot?: string;
+};
 
 const renderDashboard = (registry: ProjectRegistry): string => {
   const projectCount = registry.list().length;
@@ -66,7 +76,19 @@ const renderDashboard = (registry: ProjectRegistry): string => {
 </html>`;
 };
 
-export const routes = (app: HonoAppType, registry: ProjectRegistry) => {
+const mountBuiltWebRoutes = (app: HonoAppType, webRoot: string): void => {
+  app.use('*', serveStatic({ root: webRoot, index: 'index.html' }));
+  app.get('*', serveStatic({ root: webRoot, path: 'index.html' }));
+};
+
+const mountDevelopmentRoutes = (app: HonoAppType, registry: ProjectRegistry): void => {
+  app.get('/', (c) => c.html(renderDashboard(registry)));
+};
+
+export const routes = (app: HonoAppType, registry: ProjectRegistry, options: RouteOptions = {}) => {
+  const runtime = options.runtime ?? 'dev';
+  const webRoot = options.webRoot ?? DEFAULT_WEB_ROOT;
+
   app.get('/info', (c) => {
     return c.json({
       status: 'healthy',
@@ -76,9 +98,14 @@ export const routes = (app: HonoAppType, registry: ProjectRegistry) => {
     } as const);
   });
 
-  app.get('/', (c) => c.html(renderDashboard(registry)));
-
   mountStatusRoutes(app, registry);
+
+  if (shouldServeBuiltWeb(runtime)) {
+    mountBuiltWebRoutes(app, webRoot);
+  } else {
+    mountDevelopmentRoutes(app, registry);
+  }
+
   return app;
 };
 

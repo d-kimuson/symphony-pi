@@ -6,6 +6,8 @@ import type { HonoContext } from './app.ts';
 import { createProjectRegistry, type ProjectRuntime } from './app/runtime/model.ts';
 import { routes } from './routes.ts';
 
+const PROD_WEB_FIXTURE_ROOT = 'src/server/testdata/prod-web';
+
 describe('routes', () => {
   const makeApp = (): Hono<HonoContext> => new Hono<HonoContext>();
   const makeRuntime = (): ProjectRuntime => ({
@@ -80,6 +82,42 @@ describe('routes', () => {
       mode: 'single-project',
       projects: 1,
     });
+  });
+
+  it('returns the development dashboard outside prod runtime', async () => {
+    const app = makeApp();
+    routes(app, createProjectRegistry('single-project', [makeRuntime()]), { runtime: 'dev' });
+    const res = await app.request('/');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Symphony Pi');
+  });
+
+  it('serves the built web app in prod runtime', async () => {
+    const app = makeApp();
+    routes(app, createProjectRegistry('single-project', [makeRuntime()]), {
+      runtime: 'prod',
+      webRoot: PROD_WEB_FIXTURE_ROOT,
+    });
+
+    const rootResponse = await app.request('/');
+    expect(rootResponse.status).toBe(200);
+    expect(await rootResponse.text()).toContain('prod web fixture');
+
+    const assetResponse = await app.request('/assets/app.js');
+    expect(assetResponse.status).toBe(200);
+    expect(await assetResponse.text()).toContain('prod web fixture');
+  });
+
+  it('uses index.html as the SPA fallback in prod runtime', async () => {
+    const app = makeApp();
+    routes(app, createProjectRegistry('single-project', [makeRuntime()]), {
+      runtime: 'prod',
+      webRoot: PROD_WEB_FIXTURE_ROOT,
+    });
+
+    const res = await app.request('/projects/alpha');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('prod web fixture');
   });
 
   it('returns 404 for unknown routes', async () => {

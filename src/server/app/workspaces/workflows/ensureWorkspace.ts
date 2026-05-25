@@ -1,6 +1,6 @@
 /** Side-effectful workspace creation, cleanup, and lifecycle-hook workflows. */
 
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 
 import type { EffectiveConfig } from '../../config/model.ts';
@@ -43,6 +43,14 @@ const buildHookEnv = (workspacePath: string, config: EffectiveConfig): NodeJS.Pr
   }
 
   return env;
+};
+
+const isExistingWorkspaceEmpty = (workspacePath: string): boolean => {
+  try {
+    return readdirSync(workspacePath).length === 0;
+  } catch {
+    return false;
+  }
 };
 
 const runHook = async (
@@ -99,13 +107,15 @@ export const ensureWorkspace = (identifier: string, workspaceRoot: string): Work
     }
   }
 
+  const shouldRunCreateLifecycle = !alreadyExists || isExistingWorkspaceEmpty(path);
+
   const workspace: Workspace = {
     path,
     workspace_key: workspaceKey,
-    created_now: !alreadyExists,
+    created_now: shouldRunCreateLifecycle,
   };
 
-  return alreadyExists ? { type: 'reused', workspace } : { type: 'created', workspace };
+  return shouldRunCreateLifecycle ? { type: 'created', workspace } : { type: 'reused', workspace };
 };
 
 /**

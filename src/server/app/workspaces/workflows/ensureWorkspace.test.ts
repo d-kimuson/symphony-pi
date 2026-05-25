@@ -14,6 +14,7 @@ import {
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   mkdirSync: vi.fn(),
+  readdirSync: vi.fn(),
   rmSync: vi.fn(),
 }));
 
@@ -21,7 +22,7 @@ vi.mock('../../../lib/process/index.js', () => ({
   execShellScript: vi.fn(),
 }));
 
-import { rmSync, existsSync, mkdirSync } from 'node:fs';
+import { rmSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 
 import { execShellScript } from '../../../lib/process/index.ts';
 
@@ -86,14 +87,28 @@ describe('ensureWorkspace', () => {
     expect(mkdirSync).toHaveBeenCalled();
   });
 
-  it('reuses existing workspace directory', () => {
+  it('reuses existing non-empty workspace directory', () => {
     vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readdirSync).mockReturnValue(['.git'] as never);
 
     const result = ensureWorkspace('TEST-1', '/tmp/workspaces');
 
     expect(result.type).toBe('reused');
     if (result.type === 'reused') {
       expect(result.workspace.created_now).toBe(false);
+    }
+    expect(mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it('treats an existing empty workspace directory as newly created', () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readdirSync).mockReturnValue([] as never);
+
+    const result = ensureWorkspace('TEST-1', '/tmp/workspaces');
+
+    expect(result.type).toBe('created');
+    if (result.type === 'created') {
+      expect(result.workspace.created_now).toBe(true);
     }
     expect(mkdirSync).not.toHaveBeenCalled();
   });

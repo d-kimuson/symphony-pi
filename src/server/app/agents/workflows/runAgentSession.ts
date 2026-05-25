@@ -29,6 +29,58 @@ export type AgentRunResult = {
  */
 export type StateChecker = (issueId: string) => Promise<string | null>;
 
+type TokenUsage = {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+};
+
+type TurnResult =
+  | { readonly status: 'success' }
+  | { readonly status: 'timed_out' }
+  | { readonly status: 'failed'; readonly error: string }
+  | { readonly status: 'aborted' };
+
+const emptyUsage: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  isRecord(value) ? value : null;
+
+const getNumber = (record: Record<string, unknown>, key: string): number => {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+};
+
+const extractUsage = (value: unknown): TokenUsage | null => {
+  const record = asRecord(value);
+  const usage = asRecord(record?.['usage']);
+  if (usage === null) return null;
+
+  return {
+    input: getNumber(usage, 'input'),
+    output: getNumber(usage, 'output'),
+    cacheRead: getNumber(usage, 'cacheRead'),
+    cacheWrite: getNumber(usage, 'cacheWrite'),
+  };
+};
+
+const extractUsageFromSdkEvent = (event: unknown): TokenUsage | null => {
+  const record = asRecord(event);
+  if (record === null) return null;
+
+  return extractUsage(record['message']);
+};
+
+const toSdkEventType = (event: unknown): string | null => {
+  const record = asRecord(event);
+  const type = record?.['type'];
+  return typeof type === 'string' ? type : null;
+};
+
 /**
  * Run an agent session for an issue.
  *
@@ -51,6 +103,7 @@ export const runAgentSession = async (
   const threadId = sessionHandle.sessionId;
   let turnCount = 0;
   let abortPromise: Promise<void> | null = null;
+  let lastUsage: TokenUsage = emptyUsage;
 
   const requestAbort = (): Promise<void> => {
     if (abortPromise !== null) {
@@ -84,6 +137,70 @@ export const runAgentSession = async (
 
   // Use AbortController for proper timeout/cleanup
   const abortController = new AbortController();
+
+  const unsubscribe = sessionHandle.events.subscribe((sdkEvent: unknown) => {
+    const usage = extractUsageFromSdkEvent(sdkEvent);
+    if (usage !== null) {
+      lastUsage = usage;
+    }
+
+    const eventType = toSdkEventType(sdkEvent);
+    if (eventType === null) return;
+
+    const turnId = `turn-${Math.max(turnCount, 1)}`;
+    const sessionId = `pi:${threadId}:${turnId}`;
+    const timestamp = new Date().toISOString();
+
+    if (eventType === 'tool_execution_start') {
+      const record = asRecord(sdkEvent);
+      const toolName = record?.['toolName'];
+      onEvent({
+        event: 'tool_execution_start',
+        timestamp,
+        session_id: sessionId,
+        thread_id: threadId,
+        turn_id: turnId,
+        tool_name: typeof toolName === 'string' ? toolName : 'unknown',
+      });
+      return;
+    }
+
+    if (eventType === 'tool_execution_update') {
+      const record = asRecord(sdkEvent);
+      const toolName = record?.['toolName'];
+      onEvent({
+        event: 'tool_execution_update',
+        timestamp,
+        session_id: sessionId,
+        thread_id: threadId,
+        turn_id: turnId,
+        tool_name: typeof toolName === 'string' ? toolName : 'unknown',
+      });
+      return;
+    }
+
+    if (eventType === 'tool_execution_end') {
+      const record = asRecord(sdkEvent);
+      const toolName = record?.['toolName'];
+      onEvent({
+        event: 'tool_execution_end',
+        timestamp,
+        session_id: sessionId,
+        thread_id: threadId,
+        turn_id: turnId,
+        tool_name: typeof toolName === 'string' ? toolName : 'unknown',
+      });
+      return;
+    }
+
+    onEvent({
+      event: 'other_message',
+      timestamp,
+      session_id: sessionId,
+      thread_id: threadId,
+      turn_id: turnId,
+    });
+  });
 
   // Listen for external abort signal (from reconciliation) and abort session
   let abortListener: (() => void) | undefined;
@@ -123,12 +240,12 @@ export const runAgentSession = async (
         abortController.signal,
       );
 
-      if (turnResult === 'aborted') {
+      if (turnResult.status === 'aborted') {
         await requestAbort();
         return { status: 'cancelled', turns: turnCount, error: 'Session aborted' };
       }
 
-      if (turnResult === 'timed_out') {
+      if (turnResult.status === 'timed_out') {
         abortController.abort();
         await requestAbort();
         onEvent({
@@ -142,16 +259,16 @@ export const runAgentSession = async (
         return { status: 'timed_out', turns: turnCount, error: 'Turn timed out' };
       }
 
-      if (turnResult === 'failed') {
+      if (turnResult.status === 'failed') {
         onEvent({
           event: 'turn_failed',
           timestamp: new Date().toISOString(),
           session_id: sessionId,
           thread_id: threadId,
           turn_id: turnId,
-          error: 'Agent turn failed',
+          error: turnResult.error,
         });
-        return { status: 'failed', turns: turnCount, error: 'Agent turn failed' };
+        return { status: 'failed', turns: turnCount, error: turnResult.error };
       }
 
       // Emit turn completed
@@ -161,7 +278,12 @@ export const runAgentSession = async (
         session_id: sessionId,
         thread_id: threadId,
         turn_id: turnId,
+        input_tokens: lastUsage.input,
+        output_tokens: lastUsage.output,
+        cache_read_input_tokens: lastUsage.cacheRead,
+        cache_creation_input_tokens: lastUsage.cacheWrite,
       });
+      lastUsage = emptyUsage;
 
       // SPEC 7.1: After each turn, re-check tracker state
       if (checkState) {
@@ -191,6 +313,7 @@ export const runAgentSession = async (
     if (abortListener !== undefined && signal !== undefined) {
       signal.removeEventListener('abort', abortListener);
     }
+    unsubscribe();
     await waitForAbort();
     // Always dispose the session (SPEC 10.6)
     try {
@@ -211,22 +334,22 @@ const runTurnWithTimeout = async (
   prompt: string,
   timeoutMs: number,
   abortSignal: AbortSignal,
-): Promise<'success' | 'timed_out' | 'failed' | 'aborted'> => {
+): Promise<TurnResult> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const timeoutPromise = new Promise<'timed_out'>((resolve) => {
+  const timeoutPromise = new Promise<TurnResult>((resolve) => {
     timer = setTimeout(() => {
-      resolve('timed_out');
+      resolve({ status: 'timed_out' });
     }, timeoutMs);
   });
 
-  const abortPromise = new Promise<'aborted'>((resolve) => {
+  const abortPromise = new Promise<TurnResult>((resolve) => {
     const onAbort = () => {
-      resolve('aborted');
+      resolve({ status: 'aborted' });
       abortSignal.removeEventListener('abort', onAbort);
     };
     if (abortSignal.aborted) {
-      resolve('aborted');
+      resolve({ status: 'aborted' });
     } else {
       abortSignal.addEventListener('abort', onAbort);
     }
@@ -235,13 +358,16 @@ const runTurnWithTimeout = async (
   try {
     const turnPromise = sessionHandle
       .prompt(prompt)
-      .then(() => 'success' as const)
-      .catch(() => 'failed' as const);
+      .then((): TurnResult => ({ status: 'success' }))
+      .catch((err: unknown): TurnResult => {
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: 'failed', error: message };
+      });
 
     const result = await Promise.race([turnPromise, timeoutPromise, abortPromise]);
 
     // Clean up timer on non-timeout paths
-    if (result !== 'timed_out' && timer !== undefined) {
+    if (result.status !== 'timed_out' && timer !== undefined) {
       clearTimeout(timer);
     }
 

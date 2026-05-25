@@ -4,21 +4,20 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router';
 
 import { TooltipProvider } from '../components/ui/tooltip';
 import { QueryClientProviderWrapper } from '../lib/api/QueryClientProviderWrapper';
-import appCss from '../styles.css?url';
 
-const RootDocument = ({ children }: { children: ReactNode }) => {
+type RootDocumentProps = {
+  children: ReactNode;
+};
+
+const RootDocument = ({ children }: RootDocumentProps) => {
   return (
-    <html lang="ja">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <QueryClientProviderWrapper>
-          <TooltipProvider>{children}</TooltipProvider>
-        </QueryClientProviderWrapper>
-        <Scripts />
-      </body>
-    </html>
+    <>
+      <HeadContent />
+      <QueryClientProviderWrapper>
+        <TooltipProvider>{children}</TooltipProvider>
+      </QueryClientProviderWrapper>
+      <Scripts />
+    </>
   );
 };
 
@@ -30,7 +29,6 @@ export const Route = createRootRoute({
       { title: 'Symphony' },
     ],
     links: [
-      { rel: 'stylesheet', href: appCss },
       { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
       { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
       {

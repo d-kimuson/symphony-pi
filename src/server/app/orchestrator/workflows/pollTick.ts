@@ -51,6 +51,43 @@ const formatPrefix = (projectId?: string): string => {
   return projectId === undefined ? '[symphony]' : `[symphony][project:${projectId}]`;
 };
 
+const parseEventTimestamp = (timestamp: string): number => {
+  const parsed = Date.parse(timestamp);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+};
+
+const applyAgentRunnerEvent = (
+  state: OrchestratorState,
+  issueId: string,
+  event: AgentRunnerEvent,
+): void => {
+  const entry = state.running.get(issueId);
+  if (entry === undefined) return;
+
+  entry.last_agent_timestamp = parseEventTimestamp(event.timestamp);
+
+  if (event.event === 'turn_completed') {
+    entry.turn_count += 1;
+
+    const inputTokens = event.input_tokens ?? 0;
+    const outputTokens = event.output_tokens ?? 0;
+    const cacheReadTokens = event.cache_read_input_tokens ?? 0;
+    const cacheCreationTokens = event.cache_creation_input_tokens ?? 0;
+    const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+
+    state.agent_totals = {
+      input_tokens:
+        state.agent_totals.input_tokens + inputTokens + cacheReadTokens + cacheCreationTokens,
+      output_tokens: state.agent_totals.output_tokens + outputTokens,
+      total_tokens: state.agent_totals.total_tokens + totalTokens,
+      seconds_running: Math.max(
+        state.agent_totals.seconds_running,
+        Math.floor((Date.now() - entry.started_at) / 1000),
+      ),
+    };
+  }
+};
+
 /**
  * Execute one poll tick.
  * Implements the tick sequence: reconcile → validate → fetch → sort → dispatch → notify.
@@ -74,6 +111,7 @@ export const pollTick = async (
   for (const issue of sorted) {
     if (!hasGlobalSlots(config, state.running)) break;
     if (!hasStateSlots(issue.state, config, state.running)) continue;
+    if (state.retry_attempts.has(issue.id)) continue;
     if (!isDispatchEligible(issue, config, state.running, state.claimed)) continue;
 
     dispatchIssue(state, issue, config, deps);
@@ -96,7 +134,7 @@ const reconcileRunningIssues = async (
   if (runningIds.length === 0) return;
 
   for (const [issueId, entry] of state.running) {
-    if (isSessionStalled(entry, config.pi.stall_timeout_ms, null)) {
+    if (isSessionStalled(entry, config.pi.stall_timeout_ms, entry.last_agent_timestamp ?? null)) {
       entry.abortController.abort();
       const retry = createRetryEntry(
         issueId,
@@ -107,8 +145,10 @@ const reconcileRunningIssues = async (
         'Stalled session',
       );
       state.running.delete(issueId);
-      state.claimed.delete(issueId);
       state.retry_attempts.set(issueId, retry);
+      console.warn(
+        `${formatPrefix(deps.projectId)} Worker stalled for ${entry.issue_identifier}; retry queued`,
+      );
     }
   }
 
@@ -139,6 +179,7 @@ const reconcileRunningIssues = async (
         break;
       }
       case 'keep_running':
+        entry.issue_state = action.updatedState;
         break;
       case 'stop_without_cleanup': {
         entry.abortController.abort();
@@ -235,6 +276,7 @@ const runDispatchWorker = async (
       );
       if (result.type === 'failure' || result.type === 'timeout') {
         console.error(`${formatPrefix(deps.projectId)} after_create hook failed: ${result.error}`);
+        await removeWorkspace(workspacePath, config);
         handleWorkerExit(
           state,
           entry.issue_id,
@@ -300,8 +342,9 @@ const runDispatchWorker = async (
       return;
     }
 
-    const onEvent = (_event: AgentRunnerEvent): void => {
-      return;
+    const onEvent = (event: AgentRunnerEvent): void => {
+      applyAgentRunnerEvent(state, entry.issue_id, event);
+      deps.notify();
     };
 
     const checkState = async (issueId: string): Promise<string | null> => {
@@ -328,6 +371,9 @@ const runDispatchWorker = async (
     }
 
     const success = runResult.status === 'completed';
+    console.log(
+      `${formatPrefix(deps.projectId)} Agent run ${runResult.status} for ${entry.issue_identifier} (${runResult.turns} turn(s)${runResult.error === null ? '' : `: ${runResult.error}`})`,
+    );
     handleWorkerExit(state, entry.issue_id, success, runResult.error, config, deps.projectId);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -350,7 +396,6 @@ export const handleWorkerExit = (
 
   if (success) {
     state.completed.add(issueId);
-    state.claimed.delete(issueId);
     const retry = createRetryEntry(
       issueId,
       entry.issue_identifier,
@@ -362,7 +407,6 @@ export const handleWorkerExit = (
     state.retry_attempts.set(issueId, retry);
     console.log(`${formatPrefix(projectId)} Worker completed for ${entry.issue_identifier}`);
   } else {
-    state.claimed.delete(issueId);
     const attempt = (entry.attempt ?? 0) + 1;
     const retry = createRetryEntry(
       issueId,
@@ -392,8 +436,8 @@ export const handleRetryFire = async (
   const retryEntry = state.retry_attempts.get(issueId);
   if (retryEntry === undefined) return;
 
+  state.claimed.add(issueId);
   state.retry_attempts.delete(issueId);
-  state.claimed.delete(issueId);
 
   const candidates = await fetchIssues(deps.tracker, deps.projectId);
   if (candidates === null) {
@@ -411,10 +455,15 @@ export const handleRetryFire = async (
 
   const issue = candidates.find((candidate) => candidate.id === issueId);
   if (issue === undefined) {
+    state.claimed.delete(issueId);
     return;
   }
 
-  if (!isDispatchEligible(issue, config, state.running, state.claimed)) {
+  const claimedExcludingRetriedIssue = new Set(state.claimed);
+  claimedExcludingRetriedIssue.delete(issueId);
+
+  if (!isDispatchEligible(issue, config, state.running, claimedExcludingRetriedIssue)) {
+    state.claimed.delete(issueId);
     return;
   }
 

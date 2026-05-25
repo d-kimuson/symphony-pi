@@ -71,23 +71,19 @@ describe('loadConfig', () => {
     }
   });
 
-  it('returns error for invalid config (missing team_key)', () => {
-    const content = [
-      '---',
-      'tracker:',
-      '  kind: linear',
-      '  api_key: test_key',
-      '  project_slug: my-project',
-      '---',
-      '# Task',
-    ].join('\n');
+  it('loads sparse tracker config without validation errors', () => {
+    const content = ['---', 'tracker:', '  kind: linear', '---', '# Task'].join('\n');
     const filePath = makeWorkflowFile(content);
 
     try {
       const result = loadConfig(filePath);
-      if (result.type === 'loaded') throw new Error('expected error');
-      expect(result.error).toContain('Config validation');
-      expect(result.error).toContain('tracker.team_key');
+      expect(result.type).toBe('loaded');
+      if (result.type !== 'loaded') throw new Error('expected loaded');
+      expect(result.config.tracker.kind).toBe('linear');
+      if (result.config.tracker.kind !== 'linear') throw new Error('expected linear');
+      expect(result.config.tracker.api_key).toBe(process.env['LINEAR_API_KEY'] ?? '');
+      expect(result.config.tracker.team_key).toBe('');
+      expect(result.config.tracker.project_slug).toBe('');
     } finally {
       try {
         unlinkSync(filePath);

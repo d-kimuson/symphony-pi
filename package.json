@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "run-p 'dev:*'",
-    "dev:server": "node --watch src/main.ts",
+    "dev:server": "SYMPHONY_RUNTIME=dev node --watch src/main.ts",
     "dev:web": "vite",
+    "build": "pnpm build:server && pnpm build:web",
+    "build:server": "tsdown",
     "build:web": "vite build",
     "typecheck": "tsgo -p . --noEmit",
     "lint": "run-p lint:*",
@@ -30,7 +32,6 @@
     "@tanstack/react-query": "5.100.10",
     "@tanstack/react-router": "1.170.4",
     "@tanstack/react-router-devtools": "1.167.0",
-    "@tanstack/react-start": "1.168.6",
     "@tanstack/router-plugin": "1.168.6",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -67,6 +68,7 @@
     "oxlint": "1.65.0",
     "oxlint-tsgolint": "0.22.1",
     "playwright": "1.60.0",
+    "tsdown": "0.22.0",
     "vite": "8.0.13",
     "vite-tsconfig-paths": "6.1.1",
     "vitest": "4.1.6"

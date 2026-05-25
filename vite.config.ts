@@ -1,5 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
-import { tanstackStart } from '@tanstack/react-start/plugin/vite';
+import tanstackRouter from '@tanstack/router-plugin/vite';
 import viteReact from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,27 +7,14 @@ import { defineConfig } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const getPrerenderPages = () => {
-  return [{ path: '/', prerender: { enabled: false, crawlLinks: false } }];
-};
-
 export default defineConfig({
   plugins: [
     tailwindcss(),
-    tanstackStart({
-      srcDirectory: 'src/web',
-      prerender: {
-        enabled: true,
-        autoStaticPathsDiscovery: false,
-        crawlLinks: false,
-      },
-      pages: getPrerenderPages(),
-      router: {
-        routesDirectory: './app',
-        generatedRouteTree: './routeTree.gen.ts',
-        routeToken: 'page',
-        routeFileIgnorePattern: '^(?!.*\\.page\\.tsx$).*\\.(tsx|ts|jsx|js|vue)$',
-      },
+    tanstackRouter({
+      routesDirectory: './src/web/app',
+      generatedRouteTree: './src/web/routeTree.gen.ts',
+      routeToken: 'page',
+      routeFileIgnorePattern: '^(?!.*\\.page\\.tsx$).*\\.(tsx|ts|jsx|js|vue)$',
     }),
     viteReact(),
   ],
@@ -35,6 +22,9 @@ export default defineConfig({
     alias: {
       '@/web/': path.resolve(__dirname, 'src/web/'),
     },
+  },
+  build: {
+    outDir: 'dist/web',
   },
   server: {
     proxy: {

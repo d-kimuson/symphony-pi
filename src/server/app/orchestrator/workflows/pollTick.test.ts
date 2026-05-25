@@ -184,6 +184,29 @@ describe('pollTick', () => {
     expect(deps.notify).toHaveBeenCalled();
   });
 
+  it('skips dispatch when issue is retry queued', async () => {
+    const state = makeState();
+    const config = makeConfig();
+    const deps = makeDeps();
+    const issue = makeIssue();
+    state.claimed.add(issue.id);
+    state.retry_attempts.set(issue.id, {
+      issue_id: issue.id,
+      identifier: issue.identifier,
+      attempt: 1,
+      due_at_ms: Date.now() + 10000,
+      error: null,
+    });
+    mockFetchIssues.mockResolvedValue([issue]);
+    mockFetchStates.mockResolvedValue([]);
+
+    await pollTick(state, config, deps);
+
+    expect(mockEnsureWs).not.toHaveBeenCalled();
+    expect(state.running.has(issue.id)).toBe(false);
+    expect(state.claimed.has(issue.id)).toBe(true);
+  });
+
   it('skips dispatch when no global slots', async () => {
     const state = makeState();
     const config = makeConfig({
@@ -275,6 +298,7 @@ describe('handleWorkerExit', () => {
 
     expect(state.running.has('issue-1')).toBe(false);
     expect(state.completed.has('issue-1')).toBe(true);
+    expect(state.claimed.has('issue-1')).toBe(true);
     const retry = state.retry_attempts.get('issue-1');
     expect(retry).toBeDefined();
     if (!retry) throw new Error('retry missing');
@@ -293,6 +317,7 @@ describe('handleWorkerExit', () => {
     handleWorkerExit(state, 'issue-1', false, 'timeout error', config, 'alpha');
 
     expect(state.running.has('issue-1')).toBe(false);
+    expect(state.claimed.has('issue-1')).toBe(true);
     const retry = state.retry_attempts.get('issue-1');
     expect(retry).toBeDefined();
     if (!retry) throw new Error('retry missing');
@@ -332,11 +357,13 @@ describe('handleRetryFire', () => {
       error: null,
     };
     state.retry_attempts.set('issue-1', retryEntry);
+    state.claimed.add('issue-1');
 
     await handleRetryFire(state, 'issue-1', config, deps);
 
     expect(state.retry_attempts.has('issue-1')).toBe(false);
     expect(state.running.has('issue-1')).toBe(true);
+    expect(state.claimed.has('issue-1')).toBe(true);
   });
 
   it('releases when issue not found in candidates', async () => {
@@ -353,11 +380,13 @@ describe('handleRetryFire', () => {
       error: null,
     };
     state.retry_attempts.set('issue-1', retryEntry);
+    state.claimed.add('issue-1');
 
     await handleRetryFire(state, 'issue-1', config, deps);
 
     expect(state.retry_attempts.has('issue-1')).toBe(false);
     expect(state.running.has('issue-1')).toBe(false);
+    expect(state.claimed.has('issue-1')).toBe(false);
   });
 
   it('requeues when no slots available', async () => {
@@ -387,11 +416,13 @@ describe('handleRetryFire', () => {
       error: null,
     };
     state.retry_attempts.set('issue-1', retryEntry);
+    state.claimed.add('issue-1');
 
     await handleRetryFire(state, 'issue-1', config, deps);
 
     expect(state.retry_attempts.has('issue-1')).toBe(true);
     expect(state.retry_attempts.get('issue-1')?.error).toContain('no available orchestrator slots');
+    expect(state.claimed.has('issue-1')).toBe(true);
   });
 
   it('no-op when retry entry not found', async () => {

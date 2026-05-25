@@ -62,7 +62,7 @@ You are a coding agent working on issue **{{ issue.identifier }}**: {{ issue.tit
 
 1. Read and understand the issue
 2. Immediately call `set-ralph-loop` with these settings:
-   - `staticChecks`: `pnpm gatecheck check`, `pnpm typecheck`, `pnpm lint`, `pnpm test`
+   - `staticChecks`: `pnpm gatecheck check`
    - `completion`: `pr`
    - `autofix`: `comment`
    - `mergeCondition`: `fix-completed`

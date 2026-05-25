@@ -50,6 +50,26 @@ export const runAgentSession = async (
 ): Promise<AgentRunResult> => {
   const threadId = sessionHandle.sessionId;
   let turnCount = 0;
+  let abortPromise: Promise<void> | null = null;
+
+  const requestAbort = (): Promise<void> => {
+    if (abortPromise !== null) {
+      return abortPromise;
+    }
+
+    abortPromise = sessionHandle.abort().catch(() => {
+      return;
+    });
+    return abortPromise;
+  };
+
+  const waitForAbort = async (): Promise<void> => {
+    if (abortPromise === null) {
+      return;
+    }
+
+    await abortPromise;
+  };
 
   // Emit session_started
   const startEvent: AgentRunnerEvent = {
@@ -69,8 +89,8 @@ export const runAgentSession = async (
   let abortListener: (() => void) | undefined;
   if (signal !== undefined) {
     abortListener = () => {
-      void sessionHandle.abort();
       abortController.abort();
+      void requestAbort();
     };
     signal.addEventListener('abort', abortListener, { once: true });
     // If already aborted, abort immediately
@@ -83,6 +103,7 @@ export const runAgentSession = async (
     while (turnCount < config.agent.max_turns) {
       // Check external abort signal (from reconciliation)
       if (signal !== undefined && signal.aborted) {
+        await requestAbort();
         return { status: 'cancelled', turns: turnCount, error: 'Cancelled by reconciliation' };
       }
 
@@ -103,13 +124,13 @@ export const runAgentSession = async (
       );
 
       if (turnResult === 'aborted') {
-        // Disposed externally or timed out with abort
+        await requestAbort();
         return { status: 'cancelled', turns: turnCount, error: 'Session aborted' };
       }
 
       if (turnResult === 'timed_out') {
-        // Abort the session to prevent side effects
         abortController.abort();
+        await requestAbort();
         onEvent({
           event: 'turn_ended_with_error',
           timestamp: new Date().toISOString(),
@@ -170,6 +191,7 @@ export const runAgentSession = async (
     if (abortListener !== undefined && signal !== undefined) {
       signal.removeEventListener('abort', abortListener);
     }
+    await waitForAbort();
     // Always dispose the session (SPEC 10.6)
     try {
       await sessionHandle.dispose();
@@ -181,7 +203,8 @@ export const runAgentSession = async (
 
 /**
  * Run a single turn with timeout and abort support.
- * On timeout, disposes the session to abort the underlying pi prompt.
+ * Timeout is reported to the caller, which must abort the underlying session
+ * before disposing it.
  */
 const runTurnWithTimeout = async (
   sessionHandle: AgentSessionHandle,
@@ -193,8 +216,6 @@ const runTurnWithTimeout = async (
 
   const timeoutPromise = new Promise<'timed_out'>((resolve) => {
     timer = setTimeout(() => {
-      // On timeout, dispose the session to abort the underlying prompt
-      sessionHandle.dispose().catch(() => {});
       resolve('timed_out');
     }, timeoutMs);
   });

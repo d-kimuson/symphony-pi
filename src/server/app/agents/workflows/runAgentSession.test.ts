@@ -215,6 +215,76 @@ describe('runAgentSession', () => {
     expect(abortSpy).toHaveBeenCalled();
   });
 
+  it('calls abort instead of dispose when a turn times out', async () => {
+    const handle = makeSessionHandle('slow');
+    const abortSpy = vi.spyOn(handle, 'abort');
+    const disposeSpy = vi.spyOn(handle, 'dispose');
+
+    const result = await runAgentSession(
+      handle,
+      'Fix the bug',
+      testIssue,
+      {
+        ...testConfig,
+        pi: {
+          ...testConfig.pi,
+          turn_timeout_ms: 10,
+        },
+      },
+      () => {},
+      vi.fn().mockResolvedValue('Todo'),
+    );
+
+    expect(result.status).toBe('timed_out');
+    expect(abortSpy).toHaveBeenCalledTimes(1);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for abort to settle before dispose on cancellation', async () => {
+    const callOrder: string[] = [];
+    let resolveAbort: (() => void) | undefined;
+    const handle: AgentSessionHandle = {
+      sessionId: 'ordered-session',
+      prompt: () => new Promise((resolve) => setTimeout(resolve, 10000)),
+      abort: () => {
+        callOrder.push('abort:start');
+        return new Promise<void>((resolve) => {
+          resolveAbort = () => {
+            callOrder.push('abort:end');
+            resolve();
+          };
+        });
+      },
+      dispose: () => {
+        callOrder.push('dispose');
+        return Promise.resolve();
+      },
+      events: {
+        subscribe: () => () => {},
+      },
+    };
+    const controller = new AbortController();
+
+    const runPromise = runAgentSession(
+      handle,
+      'Fix the bug',
+      testIssue,
+      testConfig,
+      () => {},
+      vi.fn().mockResolvedValue('Todo'),
+      controller.signal,
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+    controller.abort();
+    await new Promise((r) => setTimeout(r, 10));
+    resolveAbort?.();
+
+    const result = await runPromise;
+    expect(result.status).toBe('cancelled');
+    expect(callOrder).toEqual(['abort:start', 'abort:end', 'dispose']);
+  });
+
   it('calls state checker after each turn', async () => {
     const handle = makeSessionHandle('success');
     const stateChecker = vi.fn().mockResolvedValue('Todo');

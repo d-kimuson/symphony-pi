@@ -4,12 +4,10 @@ Status: Draft v1 (language-agnostic)
 
 Purpose: Define a service that orchestrates coding agents to get project work done.
 
-Provenance note: This specification is derived from OpenAI's original Symphony service specification. This version preserves the daemon, orchestrator, and per-issue workspace model while extending it to support multiple issue tracker integrations, run agents through the `@earendil-works/pi-coding-agent` runtime, and launch Symphony across multiple project repositories via explicit `WORKFLOW.md` paths.
-
 ## Normative Language
 
-The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, and
-`MAY` are to be interpreted as described in RFC 2119.
+The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, `MAY`, and
+`OPTIONAL` in this document are to be interpreted as described in RFC 2119.
 
 `Implementation-defined` means the behavior is part of the implementation contract, but this
 specification does not prescribe one universal policy. Implementations MUST document the selected
@@ -18,7 +16,7 @@ behavior.
 ## 1. Problem Statement
 
 Symphony is a long-running automation service that continuously reads work from an issue tracker
-(Linear or Jira in this specification version), creates an isolated workspace for each issue, and runs a
+(Linear in this specification version), creates an isolated workspace for each issue, and runs a
 coding agent session for that issue inside the workspace.
 
 The service solves four operational problems:
@@ -103,10 +101,10 @@ Important boundary:
 6. `Agent Runner`
    - Creates workspace.
    - Builds prompt from issue + workflow template.
-   - Starts a pi-coding-agent SDK session.
+   - Launches the coding agent app-server client.
    - Streams agent updates back to the orchestrator.
 
-7. `Status Surface`
+7. `Status Surface` (OPTIONAL)
    - Presents human-readable runtime status (for example terminal output, dashboard, or other
      operator-facing view).
 
@@ -128,22 +126,21 @@ Symphony is easiest to port when kept in these layers:
 3. `Coordination Layer` (orchestrator)
    - Polling loop, issue eligibility, concurrency, retries, reconciliation.
 
-4. `Execution Layer` (workspace + pi SDK session)
-   - Filesystem lifecycle, workspace preparation, pi session lifecycle.
+4. `Execution Layer` (workspace + agent subprocess)
+   - Filesystem lifecycle, workspace preparation, coding-agent protocol.
 
-5. `Integration Layer` (Linear and Jira adapters)
+5. `Integration Layer` (Linear adapter)
    - API calls and normalization for tracker data.
 
-6. `Observability Layer` (structured logs plus the chosen status/monitoring surface)
+6. `Observability Layer` (logs + OPTIONAL status surface)
    - Operator visibility into orchestrator and agent behavior.
 
 ### 3.3 External Dependencies
 
-- Issue tracker API for all supported tracker kinds: `linear`, `jira`, and `github`.
+- Issue tracker API (Linear for `tracker.kind: linear` in this specification version).
 - Local filesystem for workspaces and logs.
-- Workspace population tooling used by configured hooks (for example Git CLI, if the workflow uses it).
-- `@earendil-works/pi-coding-agent` package available to the service runtime.
-- `get-port`-compatible port selection for the HTTP server.
+- OPTIONAL workspace population tooling (for example Git CLI, if used).
+- Coding-agent executable that supports the targeted Codex app-server mode.
 - Host environment authentication for the issue tracker and coding agent.
 
 ## 4. Core Domain Model
@@ -198,7 +195,7 @@ Examples:
 - workspace root
 - active and terminal issue states
 - concurrency limits
-- pi SDK session settings/timeouts
+- coding-agent executable/args/timeouts
 - workspace hooks
 
 #### 4.1.4 Workspace
@@ -223,24 +220,24 @@ Fields (logical):
 - `workspace_path`
 - `started_at`
 - `status`
-- `error` (string or null)
+- `error` (OPTIONAL)
 
 #### 4.1.6 Live Session (Agent Session Metadata)
 
-State tracked while a pi-coding-agent SDK session is running.
+State tracked while a coding-agent subprocess is running.
 
 Fields:
 
-- `session_id` (string, `pi:<thread_id>:<turn_id>`)
+- `session_id` (string, `<thread_id>-<turn_id>`)
 - `thread_id` (string)
 - `turn_id` (string)
-- `agent_process_pid` (string or null)
-- `last_agent_event` (string/enum or null)
-- `last_agent_timestamp` (timestamp or null)
-- `last_agent_message` (summarized payload)
-- `agent_input_tokens` (integer)
-- `agent_output_tokens` (integer)
-- `agent_total_tokens` (integer)
+- `codex_app_server_pid` (string or null)
+- `last_codex_event` (string/enum or null)
+- `last_codex_timestamp` (timestamp or null)
+- `last_codex_message` (summarized payload)
+- `codex_input_tokens` (integer)
+- `codex_output_tokens` (integer)
+- `codex_total_tokens` (integer)
 - `last_reported_input_tokens` (integer)
 - `last_reported_output_tokens` (integer)
 - `last_reported_total_tokens` (integer)
@@ -272,8 +269,8 @@ Fields:
 - `claimed` (set of issue IDs reserved/running/retrying)
 - `retry_attempts` (map `issue_id -> RetryEntry`)
 - `completed` (set of issue IDs; bookkeeping only, not dispatch gating)
-- `agent_totals` (aggregate tokens + runtime seconds)
-- `agent_rate_limits` (latest rate-limit snapshot from agent events)
+- `codex_totals` (aggregate tokens + runtime seconds)
+- `codex_rate_limits` (latest rate-limit snapshot from agent events)
 
 ### 4.2 Stable Identifiers and Normalization Rules
 
@@ -287,7 +284,7 @@ Fields:
 - `Normalized Issue State`
   - Compare states after `lowercase`.
 - `Session ID`
-  - Compose from pi `thread_id` and synthetic `turn_id` as `pi:<thread_id>:<turn_id>`.
+  - Compose from coding-agent `thread_id` and `turn_id` as `<thread_id>-<turn_id>`.
 
 ## 5. Workflow Specification (Repository Contract)
 
@@ -305,7 +302,7 @@ Loader behavior:
 
 ### 5.2 File Format
 
-`WORKFLOW.md` is a Markdown file with YAML front matter and a Markdown prompt body.
+`WORKFLOW.md` is a Markdown file with OPTIONAL YAML front matter.
 
 Design note:
 
@@ -315,9 +312,9 @@ Design note:
 
 Parsing rules:
 
-- The file MUST start with `---`; parse lines until the next `---` as YAML front matter.
+- If file starts with `---`, parse lines until the next `---` as YAML front matter.
 - Remaining lines become the prompt body.
-- If front matter is absent, return `workflow_missing_front_matter`.
+- If front matter is absent, treat the entire file as prompt body and use an empty config map.
 - YAML front matter MUST decode to a map/object; non-map YAML is an error.
 - Prompt body is trimmed before use.
 
@@ -335,78 +332,36 @@ Top-level keys:
 - `workspace`
 - `hooks`
 - `agent`
-- `pi`
-- `server`
+- `codex`
 
 Unknown keys SHOULD be ignored for forward compatibility.
 
+Note:
+
+- The workflow front matter is extensible. Extensions MAY define additional top-level keys without
+  changing the core schema above.
+- Extensions SHOULD document their field schema, defaults, validation rules, and whether changes
+  apply dynamically or require restart.
+
 #### 5.3.1 `tracker` (object)
 
-Fields common to all tracker kinds:
+Fields:
 
 - `kind` (string)
   - REQUIRED for dispatch.
-  - Supported values: `linear`, `jira`, `github`.
+  - Current supported value: `linear`
+- `endpoint` (string)
+  - Default for `tracker.kind == "linear"`: `https://api.linear.app/graphql`
 - `api_key` (string)
   - MAY be a literal token or `$VAR_NAME`.
+  - Canonical environment variable for `tracker.kind == "linear"`: `LINEAR_API_KEY`.
   - If `$VAR_NAME` resolves to an empty string, treat the key as missing.
+- `project_slug` (string)
+  - REQUIRED for dispatch when `tracker.kind == "linear"`.
 - `active_states` (list of strings)
   - Default: `Todo`, `In Progress`
 - `terminal_states` (list of strings)
   - Default: `Closed`, `Cancelled`, `Canceled`, `Duplicate`, `Done`
-- `handoff_states` (list of strings)
-  - Default: empty list.
-  - Project-configured non-active, non-terminal states that mean "the agent should stop; another
-    actor owns the next step".
-  - Examples: `Human Review`, `Code Review`, `Ready for QA`.
-  - These states are valid `ticket_transition` targets but are not dispatch candidates.
-  - Workflows that should auto-merge/auto-complete can leave this empty and transition to a
-    terminal state such as `Done` after the workflow prompt/tooling performs the merge.
-- `transition_states` (list of strings)
-  - Default: `active_states + terminal_states + handoff_states`.
-  - Project-configured allowlist of ticket states that `ticket_transition` may request.
-  - Use this when a project needs a transition target that is valid in the tracker but should not be
-    treated as active, terminal, or handoff by the scheduler.
-
-Linear fields (`tracker.kind == "linear"`):
-
-- `endpoint` (string)
-  - Default: `https://api.linear.app/graphql`
-- `api_key` canonical environment variable: `LINEAR_API_KEY`
-- `project_slug` (string)
-  - REQUIRED for dispatch.
-
-Jira fields (`tracker.kind == "jira"`):
-
-- `base_url` (string)
-  - REQUIRED for dispatch. Example: `https://example.atlassian.net`.
-- `email` (string)
-  - REQUIRED for dispatch when using Jira Cloud API tokens. MAY be a literal value or `$VAR_NAME`.
-  - Canonical environment variable: `JIRA_EMAIL`.
-- `api_key` canonical environment variable: `JIRA_API_TOKEN`.
-- `project_key` (string)
-  - REQUIRED unless `jql` is provided.
-- `jql` (string)
-  - REQUIRED unless `project_key` is provided.
-  - When omitted, implementations build JQL from `project_key` and `active_states`.
-
-GitHub fields (`tracker.kind == "github"`):
-
-- `token` (string)
-  - REQUIRED for dispatch. MAY be a literal token or `$VAR_NAME`.
-  - Canonical environment variable: `GITHUB_TOKEN`.
-  - `api_key` MAY be accepted as a backward-compatible fallback input, but `token` is the canonical field.
-- `api_base_url` (string)
-  - Default: `https://api.github.com`
-- `owner` (string)
-  - REQUIRED for dispatch.
-- `repo` (string)
-  - REQUIRED for dispatch.
-- `state_source` (string)
-  - REQUIRED value: `labels`.
-- `close_on_terminal` (boolean)
-  - Default: `false`.
-  - When `true`, `ticket_transition` to a configured terminal state also closes the GitHub issue.
 
 #### 5.3.2 `polling` (object)
 
@@ -430,21 +385,21 @@ Fields:
 
 Fields:
 
-- `after_create` (multiline shell script string or null)
+- `after_create` (multiline shell script string, OPTIONAL)
   - Runs only when a workspace directory is newly created.
   - Failure aborts workspace creation.
-- `before_run` (multiline shell script string or null)
+- `before_run` (multiline shell script string, OPTIONAL)
   - Runs before each agent attempt after workspace preparation and before launching the coding
     agent.
   - Failure aborts the current attempt.
-- `after_run` (multiline shell script string or null)
+- `after_run` (multiline shell script string, OPTIONAL)
   - Runs after each agent attempt (success, failure, timeout, or cancellation) once the workspace
     exists.
   - Failure is logged but ignored.
-- `before_remove` (multiline shell script string or null)
+- `before_remove` (multiline shell script string, OPTIONAL)
   - Runs before workspace deletion if the directory exists.
   - Failure is logged but ignored; cleanup still proceeds.
-- `timeout_ms` (integer)
+- `timeout_ms` (integer, OPTIONAL)
   - Default: `60000`
   - Applies to all workspace hooks.
   - Invalid values fail configuration validation.
@@ -469,47 +424,35 @@ Fields:
   - State keys are normalized (`lowercase`) for lookup.
   - Invalid entries (non-positive or non-numeric) are ignored.
 
-#### 5.3.6 `pi` (object)
-
-The service runs pi-coding-agent only. Other coding-agent protocols are out of scope for this
-specification version.
+#### 5.3.6 `codex` (object)
 
 Fields:
 
-- `model` (string or null)
-  - Default: null. When null, pi uses its configured default model.
-- `thinking` (string or null)
-  - Default: null. When null, pi uses its configured default thinking level.
-- `tools` (list of strings)
-  - Default: empty list.
-  - When empty, Symphony does not pass a tool allowlist to pi, so pi keeps its default tool set.
-  - When non-empty, names of pi built-in/custom tools enabled for the session as an explicit allowlist.
-- `session_dir` (path string or `$VAR`)
-  - Default: implementation-managed pi session storage for the workspace.
+For Codex-owned config values such as `approval_policy`, `thread_sandbox`, and
+`turn_sandbox_policy`, supported values are defined by the targeted Codex app-server version.
+Implementors SHOULD treat them as pass-through Codex config values rather than relying on a
+hand-maintained enum in this spec. To inspect the installed Codex schema, run
+`codex app-server generate-json-schema --out <dir>` and inspect the relevant definitions referenced
+by `v2/ThreadStartParams.json` and `v2/TurnStartParams.json`. Implementations MAY validate these
+fields locally if they want stricter startup checks.
+
+- `command` (string shell command)
+  - Default: `codex app-server`
+  - The runtime launches this command via `bash -lc` in the workspace directory.
+  - The launched process MUST speak a compatible app-server protocol over stdio.
+- `approval_policy` (Codex `AskForApproval` value)
+  - Default: implementation-defined.
+- `thread_sandbox` (Codex `SandboxMode` value)
+  - Default: implementation-defined.
+- `turn_sandbox_policy` (Codex `SandboxPolicy` value)
+  - Default: implementation-defined.
 - `turn_timeout_ms` (integer)
-  - Default: `3600000` (1 hour).
-  - Maximum time for one `session.prompt()` run.
+  - Default: `3600000` (1 hour)
+- `read_timeout_ms` (integer)
+  - Default: `5000`
 - `stall_timeout_ms` (integer)
-  - Default: `300000` (5 minutes).
+  - Default: `300000` (5 minutes)
   - If `<= 0`, stall detection is disabled.
-
-Security posture:
-
-- This spec does not define approval/sandbox fields. Implementations control risk
-  by selecting pi tools, credentials, workspace isolation, host/container isolation, and documented
-  operator policy.
-
-#### 5.3.7 `server` (object)
-
-Fields:
-
-- `port` (integer)
-  - Default: `48484`.
-  - The service selects an available port starting at this value using `get-port` semantics.
-  - CLI `--port` overrides `server.port` when both are present and uses the same availability selection rule.
-- `host` (string)
-  - Default: `127.0.0.1`.
-  - Implementations MUST bind loopback by default unless explicitly configured otherwise.
 
 ### 5.4 Prompt Template Contract
 
@@ -531,8 +474,9 @@ Template input variables:
 
 Fallback prompt behavior:
 
-- Empty workflow prompt bodies are invalid and return `workflow_empty_prompt`.
-- Workflow file read/parse failures are configuration/validation errors and MUST NOT silently fall
+- If the workflow prompt body is empty, the runtime MAY use a minimal default prompt
+  (`You are working on an issue from Linear.`).
+- Workflow file read/parse failures are configuration/validation errors and SHOULD NOT silently fall
   back to a prompt.
 
 ### 5.5 Workflow Validation and Error Surface
@@ -541,9 +485,7 @@ Error classes:
 
 - `missing_workflow_file`
 - `workflow_parse_error`
-- `workflow_missing_front_matter`
 - `workflow_front_matter_not_a_map`
-- `workflow_empty_prompt`
 - `template_parse_error` (during prompt rendering)
 - `template_render_error` (unknown variable/filter, invalid interpolation)
 
@@ -560,7 +502,7 @@ Configuration is resolved in this order:
 
 1. Select the workflow file path (explicit runtime setting, otherwise cwd default).
 2. Parse YAML front matter into a raw config map.
-3. Apply built-in defaults for fields with defaults.
+3. Apply built-in defaults for missing OPTIONAL fields.
 4. Resolve `$VAR_NAME` indirection only for config values that explicitly contain `$VAR_NAME`.
 5. Coerce and validate typed values.
 
@@ -584,13 +526,14 @@ Dynamic reload is REQUIRED:
 - The software MUST detect `WORKFLOW.md` changes.
 - On change, it MUST re-read and re-apply workflow config and prompt template without restart.
 - The software MUST attempt to adjust live behavior to the new config (for example polling
-  cadence, concurrency limits, active/terminal states, pi settings, workspace paths/hooks, and
+  cadence, concurrency limits, active/terminal states, codex settings, workspace paths/hooks, and
   prompt content for future runs).
 - Reloaded config applies to future dispatch, retry scheduling, reconciliation decisions, hook
-  execution, and pi session creation.
+  execution, and agent launches.
 - Implementations are not REQUIRED to restart in-flight agent sessions automatically when config
   changes.
-- HTTP listener setting changes such as `server.port` and `server.host` require restart.
+- Extensions that manage their own listeners/resources (for example an HTTP server port change) MAY
+  require restart unless the implementation explicitly supports live rebind.
 - Implementations SHOULD also re-validate/reload defensively during runtime operations (for example
   before dispatch) in case filesystem watch events are missed.
 - Invalid reloads MUST NOT crash the service; keep operating with the last known good effective
@@ -618,32 +561,21 @@ Validation checks:
 - Workflow file can be loaded and parsed.
 - `tracker.kind` is present and supported.
 - `tracker.api_key` is present after `$` resolution.
-- Linear: `tracker.project_slug` is present.
-- Jira: `tracker.base_url`, `tracker.email`, `tracker.api_key`, and either `tracker.project_key` or `tracker.jql` are present.
-- pi SDK dependency can be loaded by the service runtime.
+- `tracker.project_slug` is present when REQUIRED by the selected tracker kind.
+- `codex.command` is present and non-empty.
 
 ### 6.4 Core Config Fields Summary (Cheat Sheet)
 
 This section is intentionally redundant so a coding agent can implement the config layer quickly.
+Extension fields are documented in the extension section that defines them. Core conformance does
+not require recognizing or validating extension fields unless that extension is implemented.
 
-- `tracker.kind`: string, REQUIRED, supported values `linear`, `jira`, and `github`
-- `tracker.api_key`: string or `$VAR`; canonical env is `LINEAR_API_KEY` for Linear and `JIRA_API_TOKEN` for Jira
+- `tracker.kind`: string, REQUIRED, currently `linear`
+- `tracker.endpoint`: string, default `https://api.linear.app/graphql` when `tracker.kind=linear`
+- `tracker.api_key`: string or `$VAR`, canonical env `LINEAR_API_KEY` when `tracker.kind=linear`
+- `tracker.project_slug`: string, REQUIRED when `tracker.kind=linear`
 - `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
 - `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
-- `tracker.handoff_states`: list of strings, default `[]`
-- `tracker.transition_states`: list of strings, default `active_states + terminal_states + handoff_states`
-- `tracker.endpoint`: Linear GraphQL endpoint, default `https://api.linear.app/graphql` when `tracker.kind=linear`
-- `tracker.project_slug`: Linear project slug, REQUIRED when `tracker.kind=linear`
-- `tracker.base_url`: Jira site base URL, REQUIRED when `tracker.kind=jira`
-- `tracker.email`: Jira account email or `$VAR`, REQUIRED when `tracker.kind=jira`; canonical env `JIRA_EMAIL`
-- `tracker.project_key`: Jira project key, REQUIRED when `tracker.kind=jira` unless `tracker.jql` is provided
-- `tracker.jql`: Jira JQL candidate query, REQUIRED when `tracker.kind=jira` unless `tracker.project_key` is provided
-- `tracker.token`: GitHub token or `$VAR`, REQUIRED when `tracker.kind=github`; canonical env `GITHUB_TOKEN`
-- `tracker.api_base_url`: GitHub REST API base URL, default `https://api.github.com` when `tracker.kind=github`
-- `tracker.owner`: GitHub repository owner, REQUIRED when `tracker.kind=github`
-- `tracker.repo`: GitHub repository name, REQUIRED when `tracker.kind=github`
-- `tracker.state_source`: REQUIRED `labels` when `tracker.kind=github`
-- `tracker.close_on_terminal`: boolean, default `false`, optional when `tracker.kind=github`
 - `polling.interval_ms`: integer, default `30000`
 - `workspace.root`: path resolved to absolute, default `<system-temp>/symphony_workspaces`
 - `hooks.after_create`: shell script or null
@@ -655,16 +587,13 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `agent.max_turns`: integer, default `20`
 - `agent.max_retry_backoff_ms`: integer, default `300000` (5m)
 - `agent.max_concurrent_agents_by_state`: map of positive integers, default `{}`
-- `pi.model`: string or null, default null
-- `pi.thinking`: string or null, default null
-- `pi.tools`: list of pi tools, default `[]` (empty means Symphony does not restrict pi's default tool set)
-- `pi.session_dir`: path resolved to absolute when configured
-- `pi.turn_timeout_ms`: integer, default `3600000`
-- `pi.stall_timeout_ms`: integer, default `300000`
-- `server.port`: integer, default `48484`; selected with `get-port` availability semantics
-- `server.host`: string, default `127.0.0.1`
-
-## 7. Orchestration State Machine
+- `codex.command`: shell command string, default `codex app-server`
+- `codex.approval_policy`: Codex `AskForApproval` value, default implementation-defined
+- `codex.thread_sandbox`: Codex `SandboxMode` value, default implementation-defined
+- `codex.turn_sandbox_policy`: Codex `SandboxPolicy` value, default implementation-defined
+- `codex.turn_timeout_ms`: integer, default `3600000`
+- `codex.read_timeout_ms`: integer, default `5000`
+- `codex.stall_timeout_ms`: integer, default `300000`
 
 ## 7. Orchestration State Machine
 
@@ -744,7 +673,7 @@ Distinct terminal reasons are important because retry logic and logs differ.
   - Update aggregate runtime totals.
   - Schedule exponential-backoff retry.
 
-- `Agent Update Event`
+- `Codex Update Event`
   - Update live session fields, token counters, and rate limits.
 
 - `Retry Timer Fired`
@@ -854,9 +783,9 @@ Reconciliation runs every tick and has two parts.
 Part A: Stall detection
 
 - For each running issue, compute `elapsed_ms` since:
-  - `last_agent_timestamp` if any event has been seen, else
+  - `last_codex_timestamp` if any event has been seen, else
   - `started_at`
-- If `elapsed_ms > pi.stall_timeout_ms`, terminate the worker and queue a retry.
+- If `elapsed_ms > codex.stall_timeout_ms`, terminate the worker and queue a retry.
 - If `stall_timeout_ms <= 0`, skip stall detection entirely.
 
 Part B: Tracker state refresh
@@ -914,17 +843,20 @@ Notes:
 - Workspace preparation beyond directory creation (for example dependency bootstrap, checkout/sync,
   code generation) is implementation-defined and is typically handled via hooks.
 
-### 9.3 Workspace Population via Hooks
+### 9.3 OPTIONAL Workspace Population (Implementation-Defined)
 
-The service does not implement built-in VCS or repository bootstrap behavior. Workspace population
-and synchronization are performed by configured hooks such as `after_create` and `before_run`.
+The spec does not require any built-in VCS or repository bootstrap behavior.
+
+Implementations MAY populate or synchronize the workspace using implementation-defined logic and/or
+hooks (for example `after_create` and/or `before_run`).
 
 Failure handling:
 
 - Workspace population/synchronization failures return an error for the current attempt.
-- If failure happens while creating a brand-new workspace, the implementation leaves the partially
-  prepared directory in place for debugging.
-- Reused workspaces MUST NOT be destructively reset on population failure.
+- If failure happens while creating a brand-new workspace, implementations MAY remove the partially
+  prepared directory.
+- Reused workspaces SHOULD NOT be destructively reset on population failure unless that policy is
+  explicitly chosen and documented.
 
 ### 9.4 Workspace Hooks
 
@@ -942,11 +874,6 @@ Execution contract:
 - On POSIX systems, `sh -lc <script>` (or a stricter equivalent such as `bash -lc <script>`) is a
   conforming default.
 - Hook timeout uses `hooks.timeout_ms`; default: `60000 ms`.
-- Hook environment includes:
-  - `SYMPHONY_WORKFLOW_PATH`
-  - `SYMPHONY_WORKFLOW_DIR`
-  - `SYMPHONY_WORKSPACE_PATH`
-  - `SYMPHONY_WORKSPACE_KEY`
 - Log hook start, failures, and timeouts.
 
 Failure semantics:
@@ -962,7 +889,7 @@ This is the most important portability constraint.
 
 Invariant 1: Run the coding agent only in the per-issue workspace path.
 
-- Before starting the pi SDK session, validate:
+- Before launching the coding-agent subprocess, validate:
   - `cwd == workspace_path`
 
 Invariant 2: Workspace path MUST stay inside workspace root.
@@ -976,87 +903,104 @@ Invariant 3: Workspace key is sanitized.
 - Only `[A-Za-z0-9._-]` allowed in workspace directory names.
 - Replace all other characters with `_`.
 
-## 10. Agent Runner Protocol (pi-coding-agent Integration)
+## 10. Agent Runner Protocol (Coding Agent Integration)
 
-This section defines Symphony's responsibilities when integrating pi-coding-agent. Non-pi agent
-protocols are not part of this specification version.
+This section defines Symphony's language-neutral responsibilities when integrating a Codex
+app-server. The Codex app-server protocol for the targeted Codex version is the source of truth for
+protocol schemas, message payloads, transport framing, and method names.
 
-The service imports from `@earendil-works/pi-coding-agent` and uses its exported SDK surface directly.
-Non-SDK integration modes are out of scope for this specification version.
+Protocol source of truth:
 
-The runner MUST use the `@earendil-works/pi-coding-agent` package as the integration boundary, not
-`@earendil-works/pi-agent-core` directly. The package exports `createAgentSession`,
-`createAgentSessionServices`, `DefaultResourceLoader`, `SettingsManager`, `AuthStorage`,
-`ModelRegistry`, and `SessionManager`, allowing the service to reuse pi's normal settings,
-auth/model registry, resource discovery, context files, extensions, skills, and session behavior.
+- Implementations MUST send messages that are valid for the targeted Codex app-server version.
+- Implementations MUST consult the targeted Codex app-server documentation or generated schema
+  instead of treating this specification as a protocol schema.
+- If this specification appears to conflict with the targeted Codex app-server protocol, the Codex
+  protocol controls protocol shape and transport behavior.
+- Symphony-specific requirements in this section still control orchestration behavior, workspace
+  selection, prompt construction, continuation handling, and observability extraction.
 
-### 10.1 Session Creation Contract
+### 10.1 Launch Contract
 
-Requirements:
+Subprocess launch parameters:
 
-- Working directory: the per-issue workspace path.
-- The runner MUST validate that the effective pi cwd equals the per-issue workspace path before
-  starting a session.
-- Create the session through the exported `@earendil-works/pi-coding-agent` SDK, normally with
-  `createAgentSession({ cwd: workspace_path, ... })` or the service/runtime helpers exported by the
-  same package.
-- Use pi's default resource/settings/auth/model discovery unless explicit Symphony config overrides
-  a value.
-- Use a per-workspace/session manager selected by `pi.session_dir` or the pi default.
-- Subscribe to pi session events and normalize them into Section 10.4 events.
-- The first prompt is the rendered issue prompt.
-- Run each worker turn with `session.prompt(prompt)`.
-- Continuation prompts reuse the same pi session inside one worker lifetime and send continuation
-  guidance rather than the original full issue prompt.
-- When `pi.tools` is non-empty, the runner enables only that explicit pi tool allowlist plus service-defined ticket tools.
-- When `pi.tools` is empty, Symphony does not pass a pi tool allowlist and pi keeps its default tool set plus service-defined ticket tools.
-- Dispose the session when the worker run ends.
+- Command: `codex.command`
+- Invocation: `bash -lc <codex.command>`
+- Working directory: workspace path
+- Transport/framing: the protocol transport required by the targeted Codex app-server version
 
-### 10.2 Session Identifiers
+Notes:
 
-pi does not expose separate thread/turn identifiers matching this service model. Symphony therefore
-uses synthetic normalized identifiers:
+- The default command is `codex app-server`.
+- Approval policy, sandbox policy, cwd, prompt input, and OPTIONAL tool declarations are supplied
+  using fields supported by the targeted Codex app-server version.
 
-- `thread_id`: pi `sessionId`.
-- `turn_id`: a monotonically increasing worker-local integer formatted as `turn-<n>`.
-- `session_id`: `pi:<thread_id>:<turn_id>`.
+RECOMMENDED additional process settings:
 
-The same `thread_id` MUST be reused for all continuation turns inside one worker run.
+- Max line size: 10 MB (for safe buffering)
+
+### 10.2 Session Startup Responsibilities
+
+Reference: https://developers.openai.com/codex/app-server/
+
+Startup MUST follow the targeted Codex app-server contract. Symphony additionally requires the
+client to:
+
+- Start the app-server subprocess in the per-issue workspace.
+- Initialize the app-server session using the targeted Codex app-server protocol.
+- Create or resume a coding-agent thread according to the targeted protocol.
+- Supply the absolute per-issue workspace path as the thread/turn working directory wherever the
+  targeted protocol accepts cwd.
+- Start the first turn with the rendered issue prompt.
+- Start later in-worker continuation turns on the same live thread with continuation guidance rather
+  than resending the original issue prompt.
+- Supply the implementation's documented approval and sandbox policy using fields supported by the
+  targeted protocol.
+- Include issue-identifying metadata, such as `<issue.identifier>: <issue.title>`, when the targeted
+  protocol supports turn or session titles.
+- Advertise implemented client-side tools using the targeted protocol.
+
+Session identifiers:
+
+- Extract `thread_id` from the thread identity returned by the targeted Codex app-server protocol.
+- Extract `turn_id` from each turn identity returned by the targeted Codex app-server protocol.
+- Emit `session_id = "<thread_id>-<turn_id>"`
+- Reuse the same `thread_id` for all continuation turns inside one worker run
 
 ### 10.3 Streaming Turn Processing
 
-The runner processes pi events until the active prompt run terminates.
+The client processes app-server updates according to the targeted Codex app-server protocol until
+the active turn terminates.
 
 Completion conditions:
 
-- `session.prompt()` resolves -> success.
-- pi message/update event reports an error or abort -> failure.
-- `pi.turn_timeout_ms` expires -> failure.
-
-Important pi event mapping:
-
-- pi `turn_end` is one assistant response plus its tool calls. It MUST NOT by itself mark the
-  Symphony worker turn complete.
-- SDK prompt resolution marks the Symphony worker turn complete.
+- Targeted-protocol turn completion signal -> success
+- Targeted-protocol turn failure signal -> failure
+- Targeted-protocol turn cancellation signal -> failure
+- turn timeout (`turn_timeout_ms`) -> failure
+- subprocess exit -> failure
 
 Continuation processing:
 
-- If the worker continues after a successful prompt run, it SHOULD start another prompt on the same
-  live pi session.
-- The pi session SHOULD remain alive across continuation turns and be disposed only when the worker
-  run is ending.
+- If the worker decides to continue after a successful turn, it SHOULD start another turn on the same
+  live thread using the targeted protocol.
+- The app-server subprocess SHOULD remain alive across those continuation turns and be stopped only
+  when the worker run is ending.
+
+Transport handling requirements:
+
+- Follow the transport and framing rules of the targeted Codex app-server version.
+- For stdio-based transports, keep protocol stream handling separate from diagnostic stderr
+  handling unless the targeted protocol specifies otherwise.
 
 ### 10.4 Emitted Runtime Events (Upstream to Orchestrator)
 
-The pi runner emits structured events to the orchestrator callback. Each event SHOULD include:
+The app-server client emits structured events to the orchestrator callback. Each event SHOULD
+include:
 
 - `event` (enum/string)
 - `timestamp` (UTC timestamp)
-- `agent_process_pid` (null in SDK mode)
-- `session_id`
-- `thread_id`
-- `turn_id`
-- usage/token fields when pi reports them
+- `codex_app_server_pid` (if available)
+- OPTIONAL `usage` map (token counts)
 - payload fields as needed
 
 Important emitted events include, for example:
@@ -1068,58 +1012,103 @@ Important emitted events include, for example:
 - `turn_cancelled`
 - `turn_ended_with_error`
 - `turn_input_required`
-- `tool_execution_start`
-- `tool_execution_update`
-- `tool_execution_end`
+- `approval_auto_approved`
+- `unsupported_tool_call`
 - `notification`
 - `other_message`
 - `malformed`
 
-### 10.5 Tool Calls and User Input Policy
+### 10.5 Approval, Tool Calls, and User Input Policy
+
+Approval, sandbox, and user-input behavior is implementation-defined.
 
 Policy requirements:
 
-- Each implementation MUST document its pi tool allowlist, credential exposure, host/container
-  isolation, and operator-confirmation posture.
-- User-input-required or extension UI dialog events MUST NOT leave a run stalled indefinitely. An
-  implementation MAY either satisfy them, surface them to an operator, auto-resolve them, or fail
-  the run according to its documented policy.
-- Unsupported dynamic tool calls MUST return a structured tool failure and continue/fail according
-  to pi's tool execution semantics without stalling the session.
+- Each implementation MUST document its chosen approval, sandbox, and operator-confirmation
+  posture.
+- Approval requests and user-input-required events MUST NOT leave a run stalled indefinitely. An
+  implementation MAY either satisfy them, surface them to an operator, auto-resolve them, or
+  fail the run according to its documented policy.
 
-Ticket tools:
+Example high-trust behavior:
 
-- Ticket write/read tools are part of the agent toolchain, not orchestrator business logic.
-- Linear, Jira, and GitHub tool availability MUST match the active `tracker.kind`.
-- Tool credentials MUST be taken from the active Symphony workflow/runtime config; the agent MUST
-  NOT be instructed to read raw tracker tokens from disk.
+- Auto-approve command execution approvals for the session.
+- Auto-approve file-change approvals for the session.
+- Treat user-input-required turns as hard failure.
 
-Required ticket tool baseline:
+Unsupported dynamic tool calls:
 
-- `ticket_get`: fetch details for the active ticket.
-- `ticket_comment`: add a comment to the active ticket.
-- `ticket_transition`: move the active ticket to a requested target state. The target state MUST be
-  included in `tracker.transition_states` and MUST be valid for the active ticket according to the
-  tracker API. `handoff_states` covers workflow states such as `Human Review` where the agent is
-  finished but the ticket is not terminal; private/small-project workflows can instead perform an
-  auto-merge through workflow tooling and then transition directly to a terminal state such as
-  `Done`.
+- Supported dynamic tool calls that are explicitly implemented and advertised by the runtime SHOULD
+  be handled according to their extension contract.
+- If the agent requests a dynamic tool call that is not supported, return a tool failure response
+  using the targeted protocol and continue the session.
+- This prevents the session from stalling on unsupported tool execution paths.
 
-Implementations MAY provide tracker-specific low-level tools in addition to this baseline only when
-their permissions and scope are documented.
+Optional client-side tool extension:
+
+- An implementation MAY expose a limited set of client-side tools to the app-server session.
+- Current standardized optional tool: `linear_graphql`.
+- If implemented, supported tools SHOULD be advertised to the app-server session during startup
+  using the protocol mechanism supported by the targeted Codex app-server version.
+- Unsupported tool names SHOULD still return a failure result using the targeted protocol and
+  continue the session.
+
+`linear_graphql` extension contract:
+
+- Purpose: execute a raw GraphQL query or mutation against Linear using Symphony's configured
+  tracker auth for the current session.
+- Availability: only meaningful when `tracker.kind == "linear"` and valid Linear auth is configured.
+- Preferred input shape:
+
+  ```json
+  {
+    "query": "single GraphQL query or mutation document",
+    "variables": {
+      "optional": "graphql variables object"
+    }
+  }
+  ```
+
+- `query` MUST be a non-empty string.
+- `query` MUST contain exactly one GraphQL operation.
+- `variables` is OPTIONAL and, when present, MUST be a JSON object.
+- Implementations MAY additionally accept a raw GraphQL query string as shorthand input.
+- Execute one GraphQL operation per tool call.
+- If the provided document contains multiple operations, reject the tool call as invalid input.
+- `operationName` selection is intentionally out of scope for this extension.
+- Reuse the configured Linear endpoint and auth from the active Symphony workflow/runtime config; do
+  not require the coding agent to read raw tokens from disk.
+- Tool result semantics:
+  - transport success + no top-level GraphQL `errors` -> `success=true`
+  - top-level GraphQL `errors` present -> `success=false`, but preserve the GraphQL response body
+    for debugging
+  - invalid input, missing auth, or transport failure -> `success=false` with an error payload
+- Return the GraphQL response or error payload as structured tool output that the model can inspect
+  in-session.
+
+User-input-required policy:
+
+- Implementations MUST document how targeted-protocol user-input-required signals are handled.
+- A run MUST NOT stall indefinitely waiting for user input.
+- A conforming implementation MAY fail the run, surface the request to an operator, satisfy it
+  through an approved operator channel, or auto-resolve it according to its documented policy.
+- The example high-trust behavior above fails user-input-required turns immediately.
 
 ### 10.6 Timeouts and Error Mapping
 
 Timeouts:
 
-- `pi.turn_timeout_ms`: total prompt-run timeout
-- `pi.stall_timeout_ms`: enforced by orchestrator based on event inactivity
+- `codex.read_timeout_ms`: request/response timeout during startup and sync requests
+- `codex.turn_timeout_ms`: total turn stream timeout
+- `codex.stall_timeout_ms`: enforced by orchestrator based on event inactivity
 
 Error mapping (RECOMMENDED normalized categories):
 
-- `pi_sdk_load_failed`
+- `codex_not_found`
 - `invalid_workspace_cwd`
+- `response_timeout`
 - `turn_timeout`
+- `port_exit`
 - `response_error`
 - `turn_failed`
 - `turn_cancelled`
@@ -1127,28 +1116,28 @@ Error mapping (RECOMMENDED normalized categories):
 
 ### 10.7 Agent Runner Contract
 
-The `Agent Runner` wraps workspace + prompt + pi session.
+The `Agent Runner` wraps workspace + prompt + app-server client.
 
 Behavior:
 
 1. Create/reuse workspace for issue.
 2. Build prompt from workflow template.
-3. Start pi session.
-4. Forward normalized pi events to orchestrator.
+3. Start app-server session.
+4. Forward app-server events to orchestrator.
 5. On any error, fail the worker attempt (the orchestrator will retry).
 
 Note:
 
 - Workspaces are intentionally preserved after successful runs.
 
-## 11. Issue Tracker Integration Contract
+## 11. Issue Tracker Integration Contract (Linear-Compatible)
 
 ### 11.1 REQUIRED Operations
 
-An implementation MUST support these tracker adapter operations for `linear`, `jira`, and `github`:
+An implementation MUST support these tracker adapter operations:
 
 1. `fetch_candidate_issues()`
-   - Return issues in configured active states for the configured project/query.
+   - Return issues in configured active states for a configured project.
 
 2. `fetch_issues_by_states(state_names)`
    - Used for startup terminal cleanup.
@@ -1156,113 +1145,51 @@ An implementation MUST support these tracker adapter operations for `linear`, `j
 3. `fetch_issue_states_by_ids(issue_ids)`
    - Used for active-run reconciliation.
 
-All adapters MUST return the normalized Issue model from Section 4.
-
 ### 11.2 Query Semantics (Linear)
 
 Linear-specific requirements for `tracker.kind == "linear"`:
 
-- GraphQL endpoint default: `https://api.linear.app/graphql`.
-- Auth token sent in `Authorization` header.
-- `tracker.project_slug` maps to Linear project `slugId`.
-- Candidate issue query filters project using `project: { slugId: { eq: $projectSlug } }`.
-- Issue-state refresh query uses GraphQL issue IDs with variable type `[ID!]`.
-- Pagination REQUIRED for candidate issues.
-- Page size default: `50`.
-- Network timeout: `30000 ms`.
+- `tracker.kind == "linear"`
+- GraphQL endpoint (default `https://api.linear.app/graphql`)
+- Auth token sent in `Authorization` header
+- `tracker.project_slug` maps to Linear project `slugId`
+- Candidate issue query filters project using `project: { slugId: { eq: $projectSlug } }`
+- Issue-state refresh query uses GraphQL issue IDs with variable type `[ID!]`
+- Pagination REQUIRED for candidate issues
+- Page size default: `50`
+- Network timeout: `30000 ms`
 
 Important:
 
 - Linear GraphQL schema details can drift. Keep query construction isolated and test the exact query
   fields/types REQUIRED by this specification.
 
-### 11.3 Query Semantics (Jira)
+A non-Linear implementation MAY change transport details, but the normalized outputs MUST match the
+domain model in Section 4.
 
-Jira-specific requirements for `tracker.kind == "jira"`:
-
-- `tracker.base_url` is the Jira site base URL.
-- Jira Cloud auth uses `tracker.email` + `tracker.api_key` as HTTP Basic auth.
-- Candidate issue query uses Jira REST search with JQL.
-- If `tracker.jql` is present, treat it as the base candidate scope. The adapter MUST still return
-  only issues whose normalized state is in `active_states`; it MAY enforce that by adding a JQL
-  status clause or by post-filtering fetched results.
-- If `tracker.jql` is absent, build JQL from `tracker.project_key` and `active_states`, equivalent
-  to `project = <project_key> AND status in (<active_states...>) ORDER BY priority ASC, created ASC`.
-- Issue-state refresh fetches issues by Jira issue ID/key and returns normalized issue snapshots.
-- Pagination REQUIRED for candidate issues.
-- Page size default: `50`.
-- Network timeout: `30000 ms`.
-
-Jira normalization requirements:
-
-- `id`: Jira issue id when available; otherwise issue key.
-- `identifier`: Jira issue key (for example `ABC-123`).
-- `state`: Jira status name.
-- `url`: `<base_url>/browse/<issue.key>`.
-- `priority`: map Jira priority to an integer where lower numbers sort first. If no deterministic
-  mapping is available, use null.
-- `blocked_by`: derive from issue links whose relationship indicates the active issue is blocked by
-  another issue.
-- `branch_name`: null unless a Jira/dev-status integration exposes deterministic branch metadata.
-
-### 11.4 Query Semantics (GitHub)
-
-GitHub-specific requirements for `tracker.kind == "github"`:
-
-- `tracker.owner` and `tracker.repo` define a fixed repository scope.
-- Initial support uses `tracker.state_source = "labels"` only.
-- Candidate issue fetch MUST return only open issues whose labels map to configured `active_states`.
-- Implementations MAY query one active label at a time and union results by issue number.
-- `fetch_issues_by_states(state_names)` MUST support label-backed states and native `open` / `closed` fallback states.
-- `fetch_issue_states_by_ids(issue_ids)` MAY use repository-scoped issue numbers as normalized ids.
-- Pull requests returned by the GitHub Issues API MUST be excluded from normalized issue results.
-- `ticket_comment` uses the GitHub issue comment API for the configured repository.
-- `ticket_transition` removes existing configured state labels, applies the target state label when the target is label-backed, and MAY close/reopen the issue according to `close_on_terminal` and native `open` / `closed` targets.
-
-GitHub normalization requirements:
-
-- `id`: repository-scoped issue number encoded as a string.
-- `identifier`: `#<issue_number>`.
-- `state`: first matching configured transition-state label; otherwise native `open` / `closed`.
-- `url`: issue `html_url`.
-- `priority`: `null`.
-- `branch_name`: `null`.
-- `blocked_by`: empty list in the initial implementation.
-
-### 11.5 Normalization Rules
+### 11.3 Normalization Rules
 
 Candidate issue normalization SHOULD produce fields listed in Section 4.1.1.
 
 Additional normalization details:
 
-- `labels` -> lowercase strings.
-- `blocked_by` -> refs with `id`, `identifier`, and `state` when available.
-- `priority` -> integer only (non-integers become null).
-- `created_at` and `updated_at` -> parse ISO-8601 timestamps.
+- `labels` -> lowercase strings
+- `blocked_by` -> derived from inverse relations where relation type is `blocks`
+- `priority` -> integer only (non-integers become null)
+- `created_at` and `updated_at` -> parse ISO-8601 timestamps
 
-### 11.6 Error Handling Contract
+### 11.4 Error Handling Contract
 
 RECOMMENDED error categories:
 
 - `unsupported_tracker_kind`
 - `missing_tracker_api_key`
 - `missing_tracker_project_slug`
-- `missing_jira_base_url`
-- `missing_jira_email`
-- `missing_jira_project_or_jql`
 - `linear_api_request` (transport failures)
 - `linear_api_status` (non-200 HTTP)
 - `linear_graphql_errors`
 - `linear_unknown_payload`
 - `linear_missing_end_cursor` (pagination integrity error)
-- `jira_api_request` (transport failures)
-- `jira_api_status` (non-2xx HTTP)
-- `jira_unknown_payload`
-- `jira_pagination_error`
-- `github_api_request` (transport failures)
-- `github_api_status` (non-2xx HTTP)
-- `github_unknown_payload`
-- `github_invalid_issue_identifier`
 
 Orchestrator behavior on tracker errors:
 
@@ -1270,16 +1197,17 @@ Orchestrator behavior on tracker errors:
 - Running-state refresh failure: log and keep active workers running.
 - Startup terminal cleanup failure: log warning and continue startup.
 
-### 11.7 Tracker Writes (Important Boundary)
+### 11.5 Tracker Writes (Important Boundary)
 
 Symphony does not require first-class tracker write APIs in the orchestrator.
 
-- Ticket mutations (state transitions, comments, PR metadata) are handled by the coding agent using
-  ticket tools defined by the workflow/runtime environment.
+- Ticket mutations (state transitions, comments, PR metadata) are typically handled by the coding
+  agent using tools defined by the workflow prompt.
 - The service remains a scheduler/runner and tracker reader.
 - Workflow-specific success often means "reached the next handoff state" (for example
   `Human Review`) rather than tracker terminal state `Done`.
-- Ticket tools are part of the agent toolchain rather than orchestrator business logic.
+- If the `linear_graphql` client-side tool extension is implemented, it is still part of the agent
+  toolchain rather than orchestrator business logic.
 
 ## 12. Prompt Construction and Context Assembly
 
@@ -1289,7 +1217,7 @@ Inputs to prompt rendering:
 
 - `workflow.prompt_template`
 - normalized `issue` object
-- `attempt` integer or null (retry/continuation metadata)
+- OPTIONAL `attempt` integer (retry/continuation metadata)
 
 ### 12.2 Rendering Rules
 
@@ -1345,40 +1273,48 @@ Requirements:
 - If a configured log sink fails, the service SHOULD continue running when possible and emit an
   operator-visible warning through any remaining sink.
 
-### 13.3 Runtime Snapshot / Monitoring Interface
+### 13.3 Runtime Snapshot / Monitoring Interface (OPTIONAL but RECOMMENDED)
 
-The implementation exposes a synchronous runtime snapshot for dashboards or monitoring. It
-MUST return:
+If the implementation exposes a synchronous runtime snapshot (for dashboards or monitoring), it
+SHOULD return:
 
 - `running` (list of running session rows)
-- each running row MUST include `turn_count`
+- each running row SHOULD include `turn_count`
 - `retrying` (list of retry queue rows)
-- `agent_totals`
+- `codex_totals`
   - `input_tokens`
   - `output_tokens`
   - `total_tokens`
   - `seconds_running` (aggregate runtime seconds as of snapshot time, including active sessions)
 - `rate_limits` (latest coding-agent rate limit payload, if available)
 
-Snapshot error modes:
+RECOMMENDED snapshot error modes:
 
 - `timeout`
 - `unavailable`
 
-### 13.4 Human-Readable Status Surface
+### 13.4 OPTIONAL Human-Readable Status Surface
 
-A human-readable status surface (terminal output, dashboard, etc.) MUST be provided for operators.
-It MUST draw from orchestrator state/metrics only and MUST NOT be REQUIRED for scheduler correctness.
+A human-readable status surface (terminal output, dashboard, etc.) is OPTIONAL and
+implementation-defined.
+
+If present, it SHOULD draw from orchestrator state/metrics only and MUST NOT be REQUIRED for
+correctness.
 
 ### 13.5 Session Metrics and Token Accounting
 
 Token accounting rules:
 
-- pi assistant messages can include `usage` with input/output/cache/cost fields.
-- Prefer session-level totals when available from pi SDK state.
-- For message-level usage, accumulate each completed assistant message once.
-- Extract input/output/total token counts leniently from common pi usage field names.
+- Agent events can include token counts in multiple payload shapes.
+- Prefer absolute thread totals when available, such as:
+  - `thread/tokenUsage/updated` payloads
+  - `total_token_usage` within token-count wrapper events
+- Ignore delta-style payloads such as `last_token_usage` for dashboard/API totals.
+- Extract input/output/total token counts leniently from common field names within the selected
+  payload.
 - For absolute totals, track deltas relative to last reported totals to avoid double-counting.
+- Do not treat generic `usage` maps as cumulative totals unless the event type defines them that
+  way.
 - Accumulate aggregate totals in orchestrator state.
 
 Runtime accounting:
@@ -1396,35 +1332,43 @@ Rate-limit tracking:
 - Track the latest rate-limit payload seen in any agent update.
 - Any human-readable presentation of rate-limit data is implementation-defined.
 
-### 13.6 Humanized Agent Event Summaries
+### 13.6 Humanized Agent Event Summaries (OPTIONAL)
 
-Humanized summaries of raw pi events are observability-only output. Orchestrator logic MUST NOT depend on humanized strings.
+Humanized summaries of raw agent protocol events are OPTIONAL.
 
-### 13.7 HTTP Server
+If implemented:
 
-This section defines the HTTP interface for observability and operational control.
+- Treat them as observability-only output.
+- Do not make orchestrator logic depend on humanized strings.
 
+### 13.7 OPTIONAL HTTP Server Extension
+
+This section defines an OPTIONAL HTTP interface for observability and operational control.
+
+If implemented:
+
+- The HTTP server is an extension and is not REQUIRED for conformance.
 - The implementation MAY serve server-rendered HTML or a client-side application for the dashboard.
 - The dashboard/API MUST be observability/control surfaces only and MUST NOT become REQUIRED for
   orchestrator correctness.
 
-Server config:
+Extension config:
 
-- `server.port` (integer)
-  - Default: `48484`.
-  - The service selects an available port starting at this value using `get-port` semantics.
-  - CLI `--port` overrides `server.port` when both are present and uses the same availability selection rule.
-- `server.host` (string)
-  - Default: `127.0.0.1`.
+- `server.port` (integer, OPTIONAL)
+  - Enables the HTTP server extension.
+  - `0` requests an ephemeral port for local development and tests.
+  - CLI `--port` overrides `server.port` when both are present.
 
-Enablement:
+Enablement (extension):
 
-- Start the HTTP server during service startup.
-- `server.port` is the preferred starting port, not a guaranteed fixed bind.
-- If the preferred port is unavailable, select the next available port using `get-port` semantics and log the selected port.
-- Implementations MUST bind loopback by default (`127.0.0.1` or host equivalent) unless explicitly
+- Start the HTTP server when a CLI `--port` argument is provided.
+- Start the HTTP server when `server.port` is present in `WORKFLOW.md` front matter.
+- The `server` top-level key is owned by this extension.
+- Positive `server.port` values bind that port.
+- Implementations SHOULD bind loopback by default (`127.0.0.1` or host equivalent) unless explicitly
   configured otherwise.
-- Changes to HTTP listener settings (for example `server.port` or `server.host`) require restart.
+- Changes to HTTP listener settings (for example `server.port`) do not need to hot-rebind;
+  restart-required behavior is conformant.
 
 #### 13.7.1 Human-Readable Dashboard (`/`)
 
@@ -1457,7 +1401,7 @@ Minimum endpoints:
           "issue_id": "abc123",
           "issue_identifier": "MT-649",
           "state": "In Progress",
-          "session_id": "pi:thread-1:turn-1",
+          "session_id": "thread-1-turn-1",
           "turn_count": 7,
           "last_event": "turn_completed",
           "last_message": "",
@@ -1479,7 +1423,7 @@ Minimum endpoints:
           "error": "no available orchestrator slots"
         }
       ],
-      "agent_totals": {
+      "codex_totals": {
         "input_tokens": 5000,
         "output_tokens": 2400,
         "total_tokens": 7400,
@@ -1507,7 +1451,7 @@ Minimum endpoints:
         "current_retry_attempt": 2
       },
       "running": {
-        "session_id": "pi:thread-1:turn-1",
+        "session_id": "thread-1-turn-1",
         "turn_count": 7,
         "state": "In Progress",
         "started_at": "2026-02-24T20:10:12Z",
@@ -1522,10 +1466,10 @@ Minimum endpoints:
       },
       "retry": null,
       "logs": {
-        "agent_session_logs": [
+        "codex_session_logs": [
           {
             "label": "latest",
-            "path": "/var/log/symphony/pi/MT-649/latest.log",
+            "path": "/var/log/symphony/codex/MT-649/latest.log",
             "url": null
           }
         ]
@@ -1578,7 +1522,7 @@ API design notes:
    - Missing `WORKFLOW.md`
    - Invalid YAML front matter
    - Unsupported tracker kind or missing tracker credentials/project slug
-   - Missing pi SDK dependency or credentials
+   - Missing coding-agent executable
 
 2. `Workspace Failures`
    - Workspace directory creation failure
@@ -1591,7 +1535,7 @@ API design notes:
    - Turn failed/cancelled
    - Turn timeout
    - User input requested and handled as failure by the implementation's documented policy
-   - Session aborted or ended with error
+   - Subprocess exit
    - Stalled session (no activity)
 
 4. `Tracker Failures`
@@ -1703,7 +1647,7 @@ Implications:
 
 ### 15.5 Harness Hardening Guidance
 
-Running pi-coding-agent sessions against repositories, issue trackers, and other inputs that can contain
+Running Codex agents against repositories, issue trackers, and other inputs that can contain
 sensitive data or externally-controlled content can be dangerous. A permissive deployment can lead
 to data leaks, destructive mutations, or full machine compromise if the agent is induced to execute
 harmful commands or use overly-powerful integrations.
@@ -1715,19 +1659,19 @@ arguments are fully trustworthy just because they originate inside a normal work
 
 Possible hardening measures include:
 
-- Tightening pi tool, credential, and host isolation settings described elsewhere in this specification instead
+- Tightening Codex approval and sandbox settings described elsewhere in this specification instead
   of running with a maximally permissive configuration.
 - Adding external isolation layers such as OS/container/VM sandboxing, network restrictions, or
-  separate credentials beyond the configured pi runner and host isolation controls.
-- Filtering which Linear/Jira issues, projects, teams, labels, or other tracker sources are eligible for
+  separate credentials beyond the built-in Codex policy controls.
+- Filtering which Linear issues, projects, teams, labels, or other tracker sources are eligible for
   dispatch so untrusted or out-of-scope tasks do not automatically reach the agent.
-- Narrowing ticket tools so they can only read or mutate data inside the intended project scope,
-  rather than exposing general workspace-wide tracker access.
+- Narrowing the `linear_graphql` tool so it can only read or mutate data inside the
+  intended project scope, rather than exposing general workspace-wide tracker access.
 - Reducing the set of client-side tools, credentials, filesystem paths, and network destinations
   available to the agent to the minimum needed for the workflow.
 
 The correct controls are deployment-specific, but implementations SHOULD document them clearly and
-treat harness hardening as part of the core safety model rather than a deferred afterthought.
+treat harness hardening as part of the core safety model rather than an optional afterthought.
 
 ## 16. Reference Algorithms (Language-Agnostic)
 
@@ -1746,8 +1690,8 @@ function start_service():
     claimed: set(),
     retry_attempts: {},
     completed: set(),
-    agent_totals: {input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-    agent_rate_limits: null
+    codex_totals: {input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+    codex_rate_limits: null
   }
 
   validation = validate_dispatch_config()
@@ -1839,13 +1783,13 @@ function dispatch_issue(issue, state, attempt):
     identifier: issue.identifier,
     issue,
     session_id: null,
-    agent_process_pid: null,
-    last_agent_message: null,
-    last_agent_event: null,
-    last_agent_timestamp: null,
-    agent_input_tokens: 0,
-    agent_output_tokens: 0,
-    agent_total_tokens: 0,
+    codex_app_server_pid: null,
+    last_codex_message: null,
+    last_codex_event: null,
+    last_codex_timestamp: null,
+    codex_input_tokens: 0,
+    codex_output_tokens: 0,
+    codex_total_tokens: 0,
     last_reported_input_tokens: 0,
     last_reported_output_tokens: 0,
     last_reported_total_tokens: 0,
@@ -1869,7 +1813,7 @@ function run_agent_attempt(issue, attempt, orchestrator_channel):
   if run_hook("before_run", workspace.path) failed:
     fail_worker("before_run hook error")
 
-  session = pi_runner.start_session(workspace=workspace.path)
+  session = app_server.start_session(workspace=workspace.path)
   if session failed:
     run_hook_best_effort("after_run", workspace.path)
     fail_worker("agent session startup error")
@@ -1880,25 +1824,25 @@ function run_agent_attempt(issue, attempt, orchestrator_channel):
   while true:
     prompt = build_turn_prompt(workflow_template, issue, attempt, turn_number, max_turns)
     if prompt failed:
-      pi_runner.stop_session(session)
+      app_server.stop_session(session)
       run_hook_best_effort("after_run", workspace.path)
       fail_worker("prompt error")
 
-    turn_result = pi_runner.run_turn(
+    turn_result = app_server.run_turn(
       session=session,
       prompt=prompt,
       issue=issue,
-      on_message=(msg) -> send(orchestrator_channel, {agent_update, issue.id, msg})
+      on_message=(msg) -> send(orchestrator_channel, {codex_update, issue.id, msg})
     )
 
     if turn_result failed:
-      pi_runner.stop_session(session)
+      app_server.stop_session(session)
       run_hook_best_effort("after_run", workspace.path)
       fail_worker("agent turn error")
 
     refreshed_issue = tracker.fetch_issue_states_by_ids([issue.id])
     if refreshed_issue failed:
-      pi_runner.stop_session(session)
+      app_server.stop_session(session)
       run_hook_best_effort("after_run", workspace.path)
       fail_worker("issue state refresh error")
 
@@ -1912,7 +1856,7 @@ function run_agent_attempt(issue, attempt, orchestrator_channel):
 
     turn_number = turn_number + 1
 
-  pi_runner.stop_session(session)
+  app_server.stop_session(session)
   run_hook_best_effort("after_run", workspace.path)
 
   exit_normal()
@@ -1976,10 +1920,13 @@ specification.
 Validation profiles:
 
 - `Core Conformance`: deterministic tests REQUIRED for all conforming implementations.
+- `Extension Conformance`: REQUIRED only for OPTIONAL features that an implementation chooses to
+  ship.
 - `Real Integration Profile`: environment-dependent smoke/integration checks RECOMMENDED before
   production use.
 
-Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
+Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bullets that begin with
+`If ... is implemented` are `Extension Conformance`.
 
 ### 17.1 Workflow and Config Parsing
 
@@ -1990,17 +1937,16 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - Invalid workflow reload keeps last known good effective configuration and emits an
   operator-visible error
 - Missing `WORKFLOW.md` returns typed error
-- Missing YAML front matter returns typed error
 - Invalid YAML front matter returns typed error
 - Front matter non-map returns typed error
-- Config defaults apply when defaulted values are missing
-- `tracker.kind` validation enforces supported kinds (`linear`, `jira`, `github`)
+- Config defaults apply when OPTIONAL values are missing
+- `tracker.kind` validation enforces currently supported kind (`linear`)
 - `tracker.api_key` works (including `$VAR` indirection)
 - `$VAR` resolution works for tracker API key and path values
 - `~` path expansion works
+- `codex.command` is preserved as a shell command string
 - Per-state concurrency override map normalizes state names and ignores invalid values
 - Prompt template renders `issue` and `attempt`
-- Empty prompt body returns `workflow_empty_prompt`
 - Prompt rendering fails on unknown variables (strict mode)
 
 ### 17.2 Workspace Manager and Safety
@@ -2010,29 +1956,25 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - Existing workspace directory is reused
 - Existing non-directory path at workspace location is handled safely (replace or fail per
   implementation policy)
-- Workspace population/synchronization errors from hooks are surfaced
+- OPTIONAL workspace population/synchronization errors are surfaced
 - `after_create` hook runs only on new workspace creation
 - `before_run` hook runs before each attempt and failure/timeouts abort the current attempt
 - `after_run` hook runs after each attempt and failure/timeouts are logged and ignored
 - `before_remove` hook runs on cleanup and failures/timeouts are ignored
-- Workspace path sanitization and root containment invariants are enforced before pi session creation
-- pi session creation uses the per-issue workspace path as cwd and rejects out-of-root paths
+- Workspace path sanitization and root containment invariants are enforced before agent launch
+- Agent launch uses the per-issue workspace path as cwd and rejects out-of-root paths
 
 ### 17.3 Issue Tracker Client
 
-- Candidate issue fetch uses active states and the configured Linear project slug, Jira project/JQL, or GitHub repository + label mapping
+- Candidate issue fetch uses active states and project slug
 - Linear query uses the specified project filter field (`slugId`)
-- Jira query uses configured `jql` or builds JQL from `project_key` and `active_states`
-- GitHub candidate query unions repository-scoped open issues across configured active labels and excludes pull requests
 - Empty `fetch_issues_by_states([])` returns empty without API call
 - Pagination preserves order across multiple pages
-- Linear blockers are normalized from inverse relations of type `blocks`
-- Jira blockers are normalized from blocking issue links
+- Blockers are normalized from inverse relations of type `blocks`
 - Labels are normalized to lowercase
 - Issue state refresh by ID returns minimal normalized issues
-- Linear issue state refresh query uses GraphQL ID typing (`[ID!]`) as specified in Section 11.2
-- Jira issue state refresh uses Jira issue IDs/keys as specified in Section 11.3
-- Error mapping for request errors, non-2xx responses, GraphQL/Jira errors, malformed payloads
+- Issue state refresh query uses GraphQL ID typing (`[ID!]`) as specified in Section 11.2
+- Error mapping for request errors, non-200, GraphQL errors, malformed payloads
 
 ### 17.4 Orchestrator Dispatch, Reconciliation, and Retry
 
@@ -2049,22 +1991,38 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - Retry queue entries include attempt, due time, identifier, and error
 - Stall detection kills stalled sessions and schedules retry
 - Slot exhaustion requeues retries with explicit error reason
-- Snapshot API returns running rows, retry rows, token totals, and rate limits
-- Snapshot API timeout/unavailable cases are surfaced
+- If a snapshot API is implemented, it returns running rows, retry rows, token totals, and rate
+  limits
+- If a snapshot API is implemented, timeout/unavailable cases are surfaced
 
-### 17.5 pi-coding-agent Runner
+### 17.5 Coding-Agent App-Server Client
 
-- SDK mode creates a pi session with the per-issue workspace as cwd
-- pi session startup failures map to normalized runner errors
-- Synthetic `thread_id`, `turn_id`, and `session_id` are emitted as specified in Section 10.2
-- `session.prompt()` resolution marks the Symphony turn complete
-- pi `turn_end` alone does not prematurely complete the Symphony turn
-- `pi.turn_timeout_ms` is enforced
-- User input / extension UI requests are handled according to the implementation's documented policy and do not stall indefinitely
-- Usage and rate-limit telemetry exposed by pi is extracted
-- Configured non-empty `pi.tools` controls the enabled pi tool allowlist; empty `pi.tools` leaves pi's default tool set unrestricted
-- Required ticket tools (`ticket_get`, `ticket_comment`, `ticket_transition`) are available for Linear, Jira, and GitHub and scoped to the active ticket/tracker config
-- Unsupported tool names fail without stalling the session
+- Launch command uses workspace cwd and invokes `bash -lc <codex.command>`
+- Session startup follows the targeted Codex app-server protocol.
+- Client identity/capability payloads are valid when the targeted Codex app-server protocol requires
+  them.
+- Policy-related startup payloads use the implementation's documented approval/sandbox settings
+- Thread and turn identities exposed by the targeted protocol are extracted and used to emit
+  `session_started`
+- Request/response read timeout is enforced
+- Turn timeout is enforced
+- Transport framing required by the targeted protocol is handled correctly
+- For stdio-based transports, diagnostic stderr handling is kept separate from the protocol stream
+- Command/file-change approvals are handled according to the implementation's documented policy
+- Unsupported dynamic tool calls are rejected without stalling the session
+- User input requests are handled according to the implementation's documented policy and do not
+  stall indefinitely
+- Usage and rate-limit telemetry exposed by the targeted protocol is extracted
+- Approval, user-input-required, usage, and rate-limit signals are interpreted according to the
+  targeted protocol
+- If client-side tools are implemented, session startup advertises the supported tool specs
+  using the targeted app-server protocol
+- If the `linear_graphql` client-side tool extension is implemented:
+  - the tool is advertised to the session
+  - valid `query` / `variables` inputs execute against configured Linear auth
+  - top-level GraphQL `errors` produce `success=false` while preserving the GraphQL body
+  - invalid arguments, missing auth, and transport failures return structured failure payloads
+  - unsupported tool names still fail without stalling the session
 
 ### 17.6 Observability
 
@@ -2072,8 +2030,10 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - Structured logging includes issue/session context fields
 - Logging sink failures do not crash orchestration
 - Token/rate-limit aggregation remains correct across repeated agent updates
-- Human-readable status surface is driven from orchestrator state and does not affect scheduler correctness
-- Humanized event summaries cover key pi event classes without changing orchestrator behavior
+- If a human-readable status surface is implemented, it is driven from orchestrator state and does
+  not affect correctness
+- If humanized event summaries are implemented, they cover key wrapper/agent event classes without
+  changing orchestrator behavior
 
 ### 17.7 CLI and Host Lifecycle
 
@@ -2081,7 +2041,6 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - CLI uses `./WORKFLOW.md` when no workflow path argument is provided
 - CLI errors on nonexistent explicit workflow path or missing default `./WORKFLOW.md`
 - CLI surfaces startup failure cleanly
-- CLI `--port` overrides `server.port`
 - CLI exits with success when application starts and shuts down normally
 - CLI exits nonzero when startup fails or the host process exits abnormally
 
@@ -2090,7 +2049,8 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 These checks are RECOMMENDED for production readiness and MAY be skipped in CI when credentials,
 network access, or external service permissions are unavailable.
 
-- A real tracker smoke test can be run with valid credentials supplied by `LINEAR_API_KEY` for Linear and `JIRA_API_TOKEN`/`JIRA_EMAIL` for Jira, or documented local bootstrap mechanisms.
+- A real tracker smoke test can be run with valid credentials supplied by `LINEAR_API_KEY` or a
+  documented local bootstrap mechanism (for example `~/.linear_api_key`).
 - Real integration tests SHOULD use isolated test identifiers/workspaces and clean up tracker
   artifacts when practical.
 - A skipped real-integration test SHOULD be reported as skipped, not silently treated as passed.
@@ -2102,7 +2062,8 @@ network access, or external service permissions are unavailable.
 Use the same validation profiles as Section 17:
 
 - Section 18.1 = `Core Conformance`
-- Section 18.2 = `Real Integration Profile`
+- Section 18.2 = `Extension Conformance`
+- Section 18.3 = `Real Integration Profile`
 
 ### 18.1 REQUIRED for Conformance
 
@@ -2115,18 +2076,94 @@ Use the same validation profiles as Section 17:
 - Workspace manager with sanitized per-issue workspaces
 - Workspace lifecycle hooks (`after_create`, `before_run`, `after_run`, `before_remove`)
 - Hook timeout config (`hooks.timeout_ms`, default `60000`)
-- pi-coding-agent runner using SDK mode
-- pi-coding-agent SDK runner config
+- Coding-agent app-server subprocess client with JSON line protocol
+- Codex launch command config (`codex.command`, default `codex app-server`)
 - Strict prompt rendering with `issue` and `attempt` variables
 - Exponential retry queue with continuation retries after normal exit
 - Configurable retry backoff cap (`agent.max_retry_backoff_ms`, default 5m)
 - Reconciliation that stops runs on terminal/non-active tracker states
 - Workspace cleanup for terminal issues (startup sweep + active transition)
 - Structured logs with `issue_id`, `issue_identifier`, and `session_id`
-- Operator-visible observability (structured logs, runtime snapshot, status surface, and HTTP dashboard/API)
+- Operator-visible observability (structured logs; OPTIONAL snapshot/status surface)
 
-### 18.2 Operational Validation Before Production (RECOMMENDED)
+### 18.2 RECOMMENDED Extensions (Not REQUIRED for Conformance)
+
+- HTTP server extension honors CLI `--port` over `server.port`, uses a safe default bind host, and
+  exposes the baseline endpoints/error semantics in Section 13.7 if shipped.
+- `linear_graphql` client-side tool extension exposes raw Linear GraphQL access through the
+  app-server session using configured Symphony auth.
+- TODO: Persist retry queue and session metadata across process restarts.
+- TODO: Make observability settings configurable in workflow front matter without prescribing UI
+  implementation details.
+- TODO: Add first-class tracker write APIs (comments/state transitions) in the orchestrator instead
+  of only via agent tools.
+- TODO: Add pluggable issue tracker adapters beyond Linear.
+
+### 18.3 Operational Validation Before Production (RECOMMENDED)
 
 - Run the `Real Integration Profile` from Section 17.8 with valid credentials and network access.
 - Verify hook execution and workflow path resolution on the target host OS/shell environment.
-- Verify the configured HTTP port selection behavior (`get-port` semantics from default `48484`) and loopback/default bind expectations on the target environment.
+- If the OPTIONAL HTTP server is shipped, verify the configured port behavior and loopback/default
+  bind expectations on the target environment.
+
+## Appendix A. SSH Worker Extension (OPTIONAL)
+
+This appendix describes a common extension profile in which Symphony keeps one central
+orchestrator but executes worker runs on one or more remote hosts over SSH.
+
+Extension config:
+
+- `worker.ssh_hosts` (list of SSH host strings, OPTIONAL)
+  - When omitted, work runs locally.
+- `worker.max_concurrent_agents_per_host` (positive integer, OPTIONAL)
+  - Shared per-host cap applied across configured SSH hosts.
+
+### A.1 Execution Model
+
+- The orchestrator remains the single source of truth for polling, claims, retries, and
+  reconciliation.
+- `worker.ssh_hosts` provides the candidate SSH destinations for remote execution.
+- Each worker run is assigned to one host at a time, and that host becomes part of the run's
+  effective execution identity along with the issue workspace.
+- `workspace.root` is interpreted on the remote host, not on the orchestrator host.
+- The coding-agent app-server is launched over SSH stdio instead of as a local subprocess, so the
+  orchestrator still owns the session lifecycle even though commands execute remotely.
+- Continuation turns inside one worker lifetime SHOULD stay on the same host and workspace.
+- A remote host SHOULD satisfy the same basic contract as a local worker environment: reachable
+  shell, writable workspace root, coding-agent executable, and any required auth or repository
+  prerequisites.
+
+### A.2 Scheduling Notes
+
+- SSH hosts MAY be treated as a pool for dispatch.
+- Implementations MAY prefer the previously used host on retries when that host is still
+  available.
+- `worker.max_concurrent_agents_per_host` is an OPTIONAL shared per-host cap across configured SSH
+  hosts.
+- When all SSH hosts are at capacity, dispatch SHOULD wait rather than silently falling back to a
+  different execution mode.
+- Implementations MAY fail over to another host when the original host is unavailable before work
+  has meaningfully started.
+- Once a run has already produced side effects, a transparent rerun on another host SHOULD be
+  treated as a new attempt, not as invisible failover.
+
+### A.3 Problems to Consider
+
+- Remote environment drift:
+  - Each host needs the expected shell environment, coding-agent executable, auth, and repository
+    prerequisites.
+- Workspace locality:
+  - Workspaces are usually host-local, so moving an issue to a different host is typically a cold
+    restart unless shared storage exists.
+- Path and command safety:
+  - Remote path resolution, shell quoting, and workspace-boundary checks matter more once execution
+    crosses a machine boundary.
+- Startup and failover semantics:
+  - Implementations SHOULD distinguish host-connectivity/startup failures from in-workspace agent
+    failures so the same ticket is not accidentally re-executed on multiple hosts.
+- Host health and saturation:
+  - A dead or overloaded host SHOULD reduce available capacity, not cause duplicate execution or an
+    accidental fallback to local work.
+- Cleanup and observability:
+  - Operators need to know which host owns a run, where its workspace lives, and whether cleanup
+    happened on the right machine.

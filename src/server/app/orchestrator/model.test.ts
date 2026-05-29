@@ -9,6 +9,8 @@ describe('RetryEntry', () => {
     attempt: 1,
     due_at_ms: 1700000000000,
     error: null,
+    session_file: null,
+    dirty_auto_resume_count: 0,
   } as const satisfies RetryEntry;
 
   it('has required fields', () => {
@@ -31,6 +33,9 @@ describe('RunningEntry', () => {
     issue_state: 'Todo',
     started_at: 1700000000000,
     attempt: null,
+    session_id: null,
+    session_file: null,
+    dirty_auto_resume_count: 0,
     turn_count: 3,
     abortController: new AbortController(),
   } as const satisfies RunningEntry;
@@ -88,6 +93,9 @@ describe('OrchestratorState', () => {
       issue_state: 'Todo',
       started_at: Date.now(),
       attempt: null,
+      session_id: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
       turn_count: 0,
       abortController: new AbortController(),
     });
@@ -106,6 +114,8 @@ describe('OrchestratorState', () => {
       attempt: 1,
       due_at_ms: Date.now() + 5000,
       error: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
     });
     expect(state.retry_attempts.size).toBe(1);
   });

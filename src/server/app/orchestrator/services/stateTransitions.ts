@@ -125,6 +125,8 @@ export const createRetryEntry = (
   isNormalContinuation: boolean,
   maxRetryBackoffMs: number,
   error: string | null,
+  sessionFile: string | null,
+  dirtyAutoResumeCount: number,
 ): RetryEntry => {
   const delayMs = calculateRetryDelay(attempt, isNormalContinuation, maxRetryBackoffMs);
 
@@ -134,6 +136,8 @@ export const createRetryEntry = (
     attempt,
     due_at_ms: Date.now() + delayMs,
     error,
+    session_file: sessionFile,
+    dirty_auto_resume_count: dirtyAutoResumeCount,
   };
 };
 

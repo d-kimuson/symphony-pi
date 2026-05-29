@@ -76,6 +76,7 @@ const makeTrackerAdapter = (_config: TrackerConfig): TrackerAdapter => ({
 
 const mockHandle = {
   sessionId: 'test',
+  sessionFile: null,
   prompt: vi.fn(),
   dispose: vi.fn(),
   abort: vi.fn(),

@@ -41,9 +41,10 @@ const testConfig: EffectiveConfig = {
   prompt_template: 'Work on {{ issue.identifier }}',
 };
 
-const { mockCreateAgentSession, mockSession } = vi.hoisted(() => {
+const { mockCreateAgentSession, mockSession, mockSessionManagerOpen } = vi.hoisted(() => {
   const s = {
     sessionId: 'test-session-id',
+    sessionFile: '/tmp/sessions/test-session.jsonl',
     prompt: vi.fn().mockResolvedValue(undefined),
     dispose: vi.fn(),
     abort: vi.fn().mockResolvedValue(undefined),
@@ -52,6 +53,7 @@ const { mockCreateAgentSession, mockSession } = vi.hoisted(() => {
   return {
     mockCreateAgentSession: vi.fn().mockResolvedValue({ session: s, extensionsResult: {} }),
     mockSession: s,
+    mockSessionManagerOpen: vi.fn(() => ({})),
   };
 });
 
@@ -63,7 +65,7 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
     create: vi.fn(() => ({ find: vi.fn(), getAll: vi.fn(() => []) })),
     inMemory: vi.fn(),
   },
-  SessionManager: { create: vi.fn(() => ({})), open: vi.fn(), resume: vi.fn() },
+  SessionManager: { create: vi.fn(() => ({})), open: mockSessionManagerOpen, resume: vi.fn() },
 }));
 
 import { ModelRegistry } from '@earendil-works/pi-coding-agent';
@@ -116,6 +118,7 @@ describe('createPiSessionHandle', () => {
     expect(result.type).toBe('created');
     if (result.type !== 'created') throw new Error('Expected created');
     expect(result.handle.sessionId).toBe('test-session-id');
+    expect(result.handle.sessionFile).toBe('/tmp/sessions/test-session.jsonl');
   });
 
   it('omits tools when pi.tools is empty so pi defaults stay unrestricted', async () => {
@@ -130,6 +133,22 @@ describe('createPiSessionHandle', () => {
     const sessionOpts = mockCreateAgentSession.mock.calls[0]?.[0];
     expect(sessionOpts).toBeDefined();
     expect(sessionOpts).not.toHaveProperty('tools');
+  });
+
+  it('opens an existing session file when resumeSessionFile is provided', async () => {
+    const result = await createPiSessionHandle({
+      workspacePath: '/tmp/ws',
+      config: { ...testConfig, pi: { ...testConfig.pi, model: null, tools: [] } },
+      issueIdentifier: 'TEST-1',
+      resumeSessionFile: '/tmp/sessions/existing.jsonl',
+    });
+
+    expect(result.type).toBe('created');
+    expect(mockSessionManagerOpen).toHaveBeenCalledWith(
+      '/tmp/sessions/existing.jsonl',
+      '/tmp/sessions',
+      '/tmp/ws',
+    );
   });
 
   it('adds ticket tools when pi.tools allowlist is configured', async () => {

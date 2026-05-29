@@ -31,6 +31,7 @@ export type PiCreateOptions = {
   readonly workspacePath: string;
   readonly config: EffectiveConfig;
   readonly issueIdentifier: string;
+  readonly resumeSessionFile?: string | null;
 };
 
 export type PiSessionResult =
@@ -123,6 +124,7 @@ const buildTicketToolDefs = (config: EffectiveConfig, issueIdentifier: string) =
  */
 export const createPiSessionHandle = async (options: PiCreateOptions): Promise<PiSessionResult> => {
   const { workspacePath, config, issueIdentifier } = options;
+  const resumeSessionFile = options.resumeSessionFile ?? null;
 
   try {
     // Auth + Model resolution
@@ -161,7 +163,13 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
     }
 
     // Session persistence via SessionManager (SPEC 10.1)
-    if (config.pi.session_dir !== null) {
+    if (resumeSessionFile !== null) {
+      sessionOpts.sessionManager = SessionManager.open(
+        resumeSessionFile,
+        config.pi.session_dir ?? undefined,
+        workspacePath,
+      );
+    } else if (config.pi.session_dir !== null) {
       sessionOpts.sessionManager = SessionManager.create(workspacePath, config.pi.session_dir);
     }
 
@@ -173,6 +181,7 @@ export const createPiSessionHandle = async (options: PiCreateOptions): Promise<P
       type: 'created',
       handle: {
         sessionId: session.sessionId,
+        sessionFile: session.sessionFile ?? null,
 
         prompt: async (message: string): Promise<void> => {
           await session.prompt(message);

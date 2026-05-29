@@ -94,6 +94,9 @@ describe('runtime snapshots', () => {
       issue_state: 'Todo',
       started_at: Date.now(),
       attempt: null,
+      session_id: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
       turn_count: 3,
       abortController: new AbortController(),
     });
@@ -112,6 +115,8 @@ describe('runtime snapshots', () => {
       attempt: 2,
       due_at_ms: Date.now() + 5000,
       error: 'timeout',
+      session_file: null,
+      dirty_auto_resume_count: 0,
     });
     const beta = makeState();
 

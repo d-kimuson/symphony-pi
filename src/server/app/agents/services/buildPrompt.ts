@@ -82,3 +82,50 @@ export const buildContinuationPrompt = (turnNumber: number, issue: Issue): strin
     'Please continue from where you left off.',
     `Current issue state: ${issue.state}`,
   ].join('\n');
+
+export const buildResumePrompt = (
+  issue: Issue,
+  reason: 'retry' | 'restart_recovery' | 'continuation',
+  error: string | null,
+): string => {
+  const reasonText =
+    reason === 'retry'
+      ? 'The previous attempt failed and this is a resumed retry.'
+      : reason === 'restart_recovery'
+        ? 'The orchestration service restarted and this is a resumed recovery run.'
+        : 'This is a resumed continuation run after the previous agent session completed.';
+
+  return [
+    '## Resume Existing Session',
+    '',
+    `You are resuming work on issue ${issue.identifier}: **${issue.title}**.`,
+    reasonText,
+    'The original task prompt and prior work are already in this pi session history.',
+    'Inspect the current repository/worktree state first, then continue safely from where the previous run stopped.',
+    `Current issue state: ${issue.state}`,
+    error === null ? null : `Previous orchestration error: ${error}`,
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+};
+
+export const buildDirtyWorktreePrompt = (
+  issue: Issue,
+  status: string,
+  autoResumeCount: number,
+): string =>
+  [
+    '## Dirty Worktree Auto-Resume',
+    '',
+    `You reported completion for issue ${issue.identifier}: **${issue.title}**, but the git worktree still has uncommitted changes.`,
+    'This workspace will be cleaned up after the task is considered complete.',
+    'Before finishing, make the worktree clean by either committing intentional changes with an appropriate commit message or reverting/discarding unintended changes.',
+    'Do not finish while `git status --porcelain=v1` is dirty.',
+    '',
+    `Auto-resume attempt: ${autoResumeCount}`,
+    '',
+    'Current `git status --porcelain=v1`:',
+    '```',
+    status,
+    '```',
+  ].join('\n');

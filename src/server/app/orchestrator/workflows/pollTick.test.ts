@@ -20,17 +20,33 @@ vi.mock('../../workspaces/workflows/ensureWorkspace.js', () => ({
   removeWorkspace: vi.fn(),
 }));
 
+vi.mock('../../workspaces/services/gitWorktree.js', () => ({
+  inspectGitWorktree: vi.fn(),
+}));
+
+vi.mock('../../workspaces/services/runState.js', () => ({
+  readWorkspaceRunState: vi.fn(),
+  writeWorkspaceRunState: vi.fn(),
+}));
+
 vi.mock('../../agents/workflows/runAgentSession.js', () => ({
   runAgentSession: vi.fn(),
 }));
 
 vi.mock('../../agents/services/buildPrompt.js', () => ({
   renderPrompt: vi.fn(),
+  buildResumePrompt: vi.fn(() => 'resume prompt'),
+  buildDirtyWorktreePrompt: vi.fn(() => 'dirty prompt'),
 }));
 
 import { renderPrompt } from '../../agents/services/buildPrompt.ts';
 import { runAgentSession } from '../../agents/workflows/runAgentSession.ts';
 import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.ts';
+import { inspectGitWorktree } from '../../workspaces/services/gitWorktree.ts';
+import {
+  readWorkspaceRunState,
+  writeWorkspaceRunState,
+} from '../../workspaces/services/runState.ts';
 import {
   ensureWorkspace,
   runAfterCreateHook,
@@ -44,6 +60,9 @@ const mockFetchStates = vi.mocked(fetchIssueStatesByIds);
 const mockEnsureWs = vi.mocked(ensureWorkspace);
 const mockRunAgentSession = vi.mocked(runAgentSession);
 const mockRenderPrompt = vi.mocked(renderPrompt);
+const mockInspectGitWorktree = vi.mocked(inspectGitWorktree);
+const mockReadWorkspaceRunState = vi.mocked(readWorkspaceRunState);
+const mockWriteWorkspaceRunState = vi.mocked(writeWorkspaceRunState);
 
 const makeConfig = (overrides?: Partial<EffectiveConfig>): EffectiveConfig => ({
   tracker: {
@@ -119,10 +138,15 @@ const makeRunningEntry = (overrides?: Partial<RunningEntry>): RunningEntry => ({
   workspace_path: '/tmp/ws/TEST-1',
   started_at: Date.now() - 60000,
   attempt: null,
+  session_id: null,
+  session_file: null,
+  dirty_auto_resume_count: 0,
   turn_count: 0,
   abortController: new AbortController(),
   ...overrides,
 });
+
+const flushAsyncWork = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 const makeDeps = (): PollTickDeps => ({
   tracker: {
@@ -134,6 +158,7 @@ const makeDeps = (): PollTickDeps => ({
   createSessionHandle: (_wsPath: string, _cfg: EffectiveConfig, _issueId: string) =>
     Promise.resolve({
       sessionId: 'test-session',
+      sessionFile: '/tmp/sessions/test-session.jsonl',
       prompt: () => Promise.resolve(),
       dispose: () => Promise.resolve(),
       abort: () => Promise.resolve(),
@@ -147,6 +172,11 @@ describe('pollTick', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(removeWorkspace).mockResolvedValue(undefined);
+    vi.mocked(runAfterCreateHook).mockResolvedValue({ type: 'success', stdout: '' });
+    vi.mocked(runBeforeRunHook).mockResolvedValue({ type: 'success', stdout: '' });
+    vi.mocked(runAfterRunHook).mockResolvedValue({ type: 'success', stdout: '' });
+    mockInspectGitWorktree.mockResolvedValue({ type: 'clean' });
+    mockReadWorkspaceRunState.mockReturnValue(null);
   });
 
   it('skips dispatch when fetch returns null', async () => {
@@ -182,6 +212,7 @@ describe('pollTick', () => {
     expect(state.claimed.has('issue-1')).toBe(true);
     expect(state.running.has('issue-1')).toBe(true);
     expect(deps.notify).toHaveBeenCalled();
+    await flushAsyncWork();
   });
 
   it('skips dispatch when issue is retry queued', async () => {
@@ -196,6 +227,8 @@ describe('pollTick', () => {
       attempt: 1,
       due_at_ms: Date.now() + 10000,
       error: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
     });
     mockFetchIssues.mockResolvedValue([issue]);
     mockFetchStates.mockResolvedValue([]);
@@ -355,6 +388,8 @@ describe('handleRetryFire', () => {
       attempt: 1,
       due_at_ms: Date.now() - 1000,
       error: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
     };
     state.retry_attempts.set('issue-1', retryEntry);
     state.claimed.add('issue-1');
@@ -364,6 +399,103 @@ describe('handleRetryFire', () => {
     expect(state.retry_attempts.has('issue-1')).toBe(false);
     expect(state.running.has('issue-1')).toBe(true);
     expect(state.claimed.has('issue-1')).toBe(true);
+    await flushAsyncWork();
+  });
+
+  it('passes retry attempt and session file into re-dispatch', async () => {
+    const state = makeState();
+    const config = makeConfig();
+    const createSessionHandle = vi.fn().mockResolvedValue({
+      sessionId: 'resumed-session',
+      sessionFile: '/tmp/sessions/resumed.jsonl',
+      prompt: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+      abort: () => Promise.resolve(),
+      events: { subscribe: () => () => {} },
+    });
+    const deps = { ...makeDeps(), createSessionHandle };
+    const issue = makeIssue();
+    mockFetchIssues.mockResolvedValue([issue]);
+    mockEnsureWs.mockReturnValue({
+      type: 'reused',
+      workspace: { path: '/tmp/ws/TEST-1', workspace_key: 'TEST-1', created_now: false },
+    });
+    mockRunAgentSession.mockResolvedValue({ status: 'failed', turns: 1, error: 'again' });
+
+    state.retry_attempts.set('issue-1', {
+      issue_id: 'issue-1',
+      identifier: 'TEST-1',
+      attempt: 2,
+      due_at_ms: Date.now() - 1000,
+      error: 'timeout',
+      session_file: '/tmp/sessions/previous.jsonl',
+      dirty_auto_resume_count: 0,
+    });
+    state.claimed.add('issue-1');
+
+    await handleRetryFire(state, 'issue-1', config, deps);
+    await flushAsyncWork();
+
+    expect(createSessionHandle).toHaveBeenCalledWith(
+      '/tmp/ws/TEST-1',
+      config,
+      'TEST-1',
+      '/tmp/sessions/previous.jsonl',
+    );
+    expect(state.retry_attempts.get('issue-1')?.attempt).toBe(3);
+    expect(state.retry_attempts.get('issue-1')?.session_file).toBe('/tmp/sessions/resumed.jsonl');
+  });
+
+  it('auto-resumes a completed run when the git worktree is dirty', async () => {
+    const state = makeState();
+    const config = makeConfig();
+    const createSessionHandle = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'first-session',
+        sessionFile: '/tmp/sessions/dirty.jsonl',
+        prompt: () => Promise.resolve(),
+        dispose: () => Promise.resolve(),
+        abort: () => Promise.resolve(),
+        events: { subscribe: () => () => {} },
+      })
+      .mockResolvedValueOnce({
+        sessionId: 'resumed-session',
+        sessionFile: '/tmp/sessions/dirty.jsonl',
+        prompt: () => Promise.resolve(),
+        dispose: () => Promise.resolve(),
+        abort: () => Promise.resolve(),
+        events: { subscribe: () => () => {} },
+      });
+    const deps = { ...makeDeps(), createSessionHandle };
+    const issue = makeIssue();
+    mockFetchIssues.mockResolvedValue([issue]);
+    mockFetchStates.mockResolvedValue([]);
+    mockEnsureWs.mockReturnValue({
+      type: 'reused',
+      workspace: { path: '/tmp/ws/TEST-1', workspace_key: 'TEST-1', created_now: false },
+    });
+    mockRenderPrompt.mockReturnValue({ type: 'rendered', content: 'prompt' });
+    mockRunAgentSession.mockResolvedValue({ status: 'completed', turns: 1, error: null });
+    mockInspectGitWorktree
+      .mockResolvedValueOnce({ type: 'dirty', status: ' M src/file.ts' })
+      .mockResolvedValueOnce({ type: 'clean' });
+
+    await pollTick(state, config, deps);
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(createSessionHandle).toHaveBeenCalledTimes(2);
+    expect(createSessionHandle).toHaveBeenNthCalledWith(
+      2,
+      '/tmp/ws/TEST-1',
+      config,
+      'TEST-1',
+      '/tmp/sessions/dirty.jsonl',
+    );
+    expect(state.retry_attempts.get('issue-1')?.error).toBeNull();
+    expect(state.retry_attempts.get('issue-1')?.session_file).toBe('/tmp/sessions/dirty.jsonl');
+    expect(mockWriteWorkspaceRunState).toHaveBeenCalled();
   });
 
   it('releases when issue not found in candidates', async () => {
@@ -378,6 +510,8 @@ describe('handleRetryFire', () => {
       attempt: 1,
       due_at_ms: Date.now() - 1000,
       error: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
     };
     state.retry_attempts.set('issue-1', retryEntry);
     state.claimed.add('issue-1');
@@ -414,6 +548,8 @@ describe('handleRetryFire', () => {
       attempt: 1,
       due_at_ms: Date.now() - 1000,
       error: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
     };
     state.retry_attempts.set('issue-1', retryEntry);
     state.claimed.add('issue-1');

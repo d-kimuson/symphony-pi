@@ -140,20 +140,20 @@ src/
 
 ## Commands
 
-| Command                | Description                          |
-| ---------------------- | ------------------------------------ |
-| `pnpm dev`             | Start server + dashboard in parallel |
-| `pnpm dev:server`      | Start server only (with watch)       |
-| `pnpm dev:web`         | Start dashboard dev server only      |
+| Command                | Description                                  |
+| ---------------------- | -------------------------------------------- |
+| `pnpm dev`             | Start server + dashboard in parallel         |
+| `pnpm dev:server`      | Start server only (with watch)               |
+| `pnpm dev:web`         | Start dashboard dev server only              |
 | `pnpm build`           | Build server (`dist/`) then web (`dist/web`) |
-| `pnpm build:server`    | Bundle server entry with tsdown      |
-| `pnpm build:web`       | Build dashboard into `dist/web`      |
-| `pnpm typecheck`       | TypeScript type checking             |
-| `pnpm test`            | Run test suite (vitest)              |
-| `pnpm test:coverage`   | Run tests with coverage report       |
-| `pnpm lint`            | Run oxlint + oxfmt check             |
-| `pnpm fix`             | Auto-fix lint/format issues          |
-| `pnpm gatecheck check` | Run all quality gates                |
+| `pnpm build:server`    | Bundle server entry with tsdown              |
+| `pnpm build:web`       | Build dashboard into `dist/web`              |
+| `pnpm typecheck`       | TypeScript type checking                     |
+| `pnpm test`            | Run test suite (vitest)                      |
+| `pnpm test:coverage`   | Run tests with coverage report               |
+| `pnpm lint`            | Run oxlint + oxfmt check                     |
+| `pnpm fix`             | Auto-fix lint/format issues                  |
+| `pnpm gatecheck check` | Run all quality gates                        |
 
 ## Documentation
 

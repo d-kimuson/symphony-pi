@@ -110,6 +110,9 @@ describe('isDispatchEligible', () => {
       issue_state: 'Todo',
       started_at: 0,
       attempt: null,
+      session_id: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
       turn_count: 0,
       abortController: new AbortController(),
     });
@@ -149,6 +152,9 @@ describe('hasGlobalSlots', () => {
         issue_state: 'Todo',
         started_at: 0,
         attempt: null,
+        session_id: null,
+        session_file: null,
+        dirty_auto_resume_count: 0,
         turn_count: 0,
         abortController: new AbortController(),
       });
@@ -178,14 +184,23 @@ describe('calculateRetryDelay', () => {
 
 describe('createRetryEntry', () => {
   it('creates entry with correct delay', () => {
-    const entry = createRetryEntry('id1', 'TEST-1', 1, true, 300000, null);
+    const entry = createRetryEntry('id1', 'TEST-1', 1, true, 300000, null, null, 0);
     expect(entry.issue_id).toBe('id1');
     expect(entry.attempt).toBe(1);
     expect(entry.error).toBeNull();
   });
 
   it('includes error when provided', () => {
-    const entry = createRetryEntry('id1', 'TEST-1', 2, false, 300000, 'timeout');
+    const entry = createRetryEntry(
+      'id1',
+      'TEST-1',
+      2,
+      false,
+      300000,
+      'timeout',
+      '/tmp/session.jsonl',
+      1,
+    );
     expect(entry.error).toBe('timeout');
   });
 });
@@ -199,6 +214,9 @@ describe('isSessionStalled', () => {
       issue_state: 'Todo',
       started_at: 0,
       attempt: null,
+      session_id: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
       turn_count: 0,
       abortController: new AbortController(),
     };
@@ -213,6 +231,9 @@ describe('isSessionStalled', () => {
       issue_state: 'Todo',
       started_at: 0,
       attempt: null,
+      session_id: null,
+      session_file: null,
+      dirty_auto_resume_count: 0,
       turn_count: 0,
       abortController: new AbortController(),
     };

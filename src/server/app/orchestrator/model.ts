@@ -7,6 +7,8 @@ export type RetryEntry = {
   readonly due_at_ms: number;
   readonly timer_handle?: ReturnType<typeof setTimeout>;
   readonly error: string | null;
+  readonly session_file: string | null;
+  readonly dirty_auto_resume_count: number;
 };
 
 export type RunningEntry = {
@@ -15,7 +17,10 @@ export type RunningEntry = {
   issue_state: string;
   readonly workspace_path: string;
   readonly started_at: number;
-  readonly attempt: number | null;
+  attempt: number | null;
+  session_id: string | null;
+  session_file: string | null;
+  dirty_auto_resume_count: number;
   turn_count: number;
   /** Last agent event timestamp for stall detection (SPEC 8.5) */
   last_agent_timestamp?: number;

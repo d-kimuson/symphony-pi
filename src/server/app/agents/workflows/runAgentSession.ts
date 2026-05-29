@@ -8,6 +8,7 @@ import { buildContinuationPrompt } from '../services/buildPrompt.ts';
 
 export type AgentSessionHandle = {
   readonly sessionId: string;
+  readonly sessionFile: string | null;
   prompt: (message: string) => Promise<void>;
   dispose: () => Promise<void>;
   /** Abort the in-flight prompt and session. Used by reconciliation. */
@@ -391,6 +392,7 @@ export const createMockSessionHandle = (
 
   return {
     sessionId,
+    sessionFile: null,
     prompt: (_message: string) =>
       new Promise<void>((resolve, reject) => {
         if (behavior === 'failure') {
@@ -430,9 +432,15 @@ export const createRealSessionHandle = async (
   workspacePath: string,
   config: EffectiveConfig,
   issueIdentifier: string,
+  resumeSessionFile?: string | null,
 ): Promise<AgentSessionHandle> => {
   const { createPiSessionHandle } = await import('./createPiSession.ts');
-  const result = await createPiSessionHandle({ workspacePath, config, issueIdentifier });
+  const result = await createPiSessionHandle({
+    workspacePath,
+    config,
+    issueIdentifier,
+    resumeSessionFile: resumeSessionFile ?? null,
+  });
   if (result.type === 'error') {
     throw new Error(result.error);
   }

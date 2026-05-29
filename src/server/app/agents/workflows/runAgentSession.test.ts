@@ -65,6 +65,7 @@ const makeSessionHandle = (
   const handlers = new Set<(e: unknown) => void>();
   return {
     sessionId: `test-session-${Date.now()}`,
+    sessionFile: null,
     prompt: () =>
       behavior === 'failure'
         ? Promise.reject(new Error('Mock failure'))
@@ -180,6 +181,7 @@ describe('runAgentSession', () => {
     const handlers = new Set<(event: unknown) => void>();
     const handle: AgentSessionHandle = {
       sessionId: 'activity-session',
+      sessionFile: null,
       prompt: () => {
         for (const handler of handlers) {
           handler({ type: 'message_update', message: {} });
@@ -218,6 +220,7 @@ describe('runAgentSession', () => {
     const handlers = new Set<(event: unknown) => void>();
     const handle: AgentSessionHandle = {
       sessionId: 'usage-session',
+      sessionFile: null,
       prompt: () => {
         for (const handler of handlers) {
           handler({
@@ -331,6 +334,7 @@ describe('runAgentSession', () => {
     let resolveAbort: (() => void) | undefined;
     const handle: AgentSessionHandle = {
       sessionId: 'ordered-session',
+      sessionFile: null,
       prompt: () => new Promise((resolve) => setTimeout(resolve, 10000)),
       abort: () => {
         callOrder.push('abort:start');

@@ -6,12 +6,21 @@ import type { TrackerAdapter } from '../../issues/adapters/trackerAdapter.ts';
 import type { Issue } from '../../issues/model.ts';
 import type { OrchestratorState, RunningEntry } from '../model.ts';
 
-import { renderPrompt } from '../../agents/services/buildPrompt.ts';
+import {
+  buildDirtyWorktreePrompt,
+  buildResumePrompt,
+  renderPrompt,
+} from '../../agents/services/buildPrompt.ts';
 import {
   runAgentSession,
   type AgentSessionHandle,
 } from '../../agents/workflows/runAgentSession.ts';
 import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.ts';
+import { inspectGitWorktree } from '../../workspaces/services/gitWorktree.ts';
+import {
+  readWorkspaceRunState,
+  writeWorkspaceRunState,
+} from '../../workspaces/services/runState.ts';
 import {
   ensureWorkspace,
   runAfterCreateHook,
@@ -33,6 +42,7 @@ export type SessionHandleFactory = (
   workspacePath: string,
   config: EffectiveConfig,
   issueIdentifier: string,
+  resumeSessionFile?: string | null,
 ) => Promise<AgentSessionHandle>;
 
 export type PollTickDeps = {
@@ -47,6 +57,23 @@ const defaultPromptTemplate = `Work on issue {{ issue.identifier }}: {{ issue.ti
 
 {% if issue.description %}{{ issue.description }}{% endif %}`;
 
+const maxDirtyAutoResumes = 3;
+
+type DispatchOptions = {
+  readonly attempt: number | null;
+  readonly resumeSessionFile: string | null;
+  readonly resumeReason: 'retry' | 'restart_recovery' | 'continuation' | null;
+  readonly resumeError: string | null;
+  readonly dirtyAutoResumeCount: number | null;
+};
+
+type AgentCycleResult = {
+  readonly success: boolean;
+  readonly error: string | null;
+  readonly turns: number;
+  readonly status: string;
+};
+
 const formatPrefix = (projectId?: string): string => {
   return projectId === undefined ? '[symphony]' : `[symphony][project:${projectId}]`;
 };
@@ -54,6 +81,23 @@ const formatPrefix = (projectId?: string): string => {
 const parseEventTimestamp = (timestamp: string): number => {
   const parsed = Date.parse(timestamp);
   return Number.isNaN(parsed) ? Date.now() : parsed;
+};
+
+const persistRunningEntry = (entry: RunningEntry, lastError: string | null): void => {
+  try {
+    writeWorkspaceRunState(entry.workspace_path, {
+      issue_id: entry.issue_id,
+      issue_identifier: entry.issue_identifier,
+      session_id: entry.session_id,
+      session_file: entry.session_file,
+      attempt: entry.attempt ?? 0,
+      dirty_auto_resume_count: entry.dirty_auto_resume_count,
+      last_error: lastError,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[symphony] Failed to persist run state for ${entry.issue_identifier}: ${msg}`);
+  }
 };
 
 const applyAgentRunnerEvent = (
@@ -114,7 +158,13 @@ export const pollTick = async (
     if (state.retry_attempts.has(issue.id)) continue;
     if (!isDispatchEligible(issue, config, state.running, state.claimed)) continue;
 
-    dispatchIssue(state, issue, config, deps);
+    dispatchIssue(state, issue, config, deps, {
+      attempt: null,
+      resumeSessionFile: null,
+      resumeReason: null,
+      resumeError: null,
+      dirtyAutoResumeCount: null,
+    });
   }
 
   deps.notify();
@@ -136,14 +186,19 @@ const reconcileRunningIssues = async (
   for (const [issueId, entry] of state.running) {
     if (isSessionStalled(entry, config.pi.stall_timeout_ms, entry.last_agent_timestamp ?? null)) {
       entry.abortController.abort();
+      const attempt = (entry.attempt ?? 0) + 1;
+      entry.attempt = attempt;
       const retry = createRetryEntry(
         issueId,
         entry.issue_identifier,
-        (entry.attempt ?? 0) + 1,
+        attempt,
         false,
         config.agent.max_retry_backoff_ms,
         'Stalled session',
+        entry.session_file,
+        entry.dirty_auto_resume_count,
       );
+      persistRunningEntry(entry, 'Stalled session');
       state.running.delete(issueId);
       state.retry_attempts.set(issueId, retry);
       console.warn(
@@ -202,6 +257,7 @@ const dispatchIssue = (
   issue: Issue,
   config: EffectiveConfig,
   deps: PollTickDeps,
+  options: DispatchOptions,
 ): void => {
   state.claimed.add(issue.id);
 
@@ -213,6 +269,15 @@ const dispatchIssue = (
   }
 
   const workspace = wsResult.workspace;
+  const rawRunState = readWorkspaceRunState(workspace.path);
+  const savedRunState = rawRunState?.issue_id === issue.id ? rawRunState : null;
+  const resumeSessionFile = options.resumeSessionFile ?? savedRunState?.session_file ?? null;
+  const attempt = options.attempt ?? savedRunState?.attempt ?? null;
+  const dirtyAutoResumeCount =
+    options.dirtyAutoResumeCount ?? savedRunState?.dirty_auto_resume_count ?? 0;
+  const resumeReason =
+    options.resumeReason ?? (resumeSessionFile === null ? null : 'restart_recovery');
+  const resumeError = options.resumeError ?? savedRunState?.last_error ?? null;
 
   const abortController = new AbortController();
 
@@ -222,7 +287,10 @@ const dispatchIssue = (
     issue_state: issue.state,
     workspace_path: workspace.path,
     started_at: Date.now(),
-    attempt: null,
+    attempt,
+    session_id: savedRunState?.session_id ?? null,
+    session_file: resumeSessionFile,
+    dirty_auto_resume_count: dirtyAutoResumeCount,
     turn_count: 0,
     abortController,
   };
@@ -239,6 +307,8 @@ const dispatchIssue = (
     wsResult.type === 'created',
     abortController.signal,
     deps,
+    resumeReason,
+    resumeError,
   );
 };
 
@@ -255,6 +325,8 @@ const runDispatchWorker = async (
   isNewWorkspace: boolean,
   signal: AbortSignal,
   deps: PollTickDeps,
+  resumeReason: DispatchOptions['resumeReason'],
+  resumeError: string | null,
 ): Promise<void> => {
   if (signal.aborted) {
     handleWorkerExit(
@@ -305,80 +377,170 @@ const runDispatchWorker = async (
       return;
     }
 
-    const template = deps.promptTemplate ?? defaultPromptTemplate;
-    const promptResult = renderPrompt(template, { issue, attempt: entry.attempt });
-    if (promptResult.type !== 'rendered') {
-      handleWorkerExit(
-        state,
-        entry.issue_id,
-        false,
-        `Prompt render error: ${promptResult.message}`,
-        config,
-        deps.projectId,
-      );
-      return;
+    let promptContent: string;
+    if (resumeReason !== null) {
+      promptContent = buildResumePrompt(issue, resumeReason, resumeError);
+    } else {
+      const template = deps.promptTemplate ?? defaultPromptTemplate;
+      const promptResult = renderPrompt(template, { issue, attempt: entry.attempt });
+      if (promptResult.type !== 'rendered') {
+        handleWorkerExit(
+          state,
+          entry.issue_id,
+          false,
+          `Prompt render error: ${promptResult.message}`,
+          config,
+          deps.projectId,
+        );
+        return;
+      }
+      promptContent = promptResult.content;
     }
-    const promptContent = promptResult.content;
 
-    let sessionHandle: AgentSessionHandle;
-    try {
-      sessionHandle = await deps.createSessionHandle(workspacePath, config, issue.identifier);
+    while (!signal.aborted) {
+      const cycle = await runAgentCycle(
+        state,
+        entry,
+        issue,
+        workspacePath,
+        config,
+        deps,
+        signal,
+        promptContent,
+      );
+
       console.log(
-        `${formatPrefix(deps.projectId)} Agent session created: ${sessionHandle.sessionId} for ${issue.identifier}`,
+        `${formatPrefix(deps.projectId)} Agent run ${cycle.status} for ${entry.issue_identifier} (${cycle.turns} turn(s)${cycle.error === null ? '' : `: ${cycle.error}`})`,
       );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(
-        `${formatPrefix(deps.projectId)} Session creation failed for ${issue.identifier}: ${msg}`,
-      );
-      handleWorkerExit(
-        state,
-        entry.issue_id,
-        false,
-        `Session creation failed: ${msg}`,
-        config,
-        deps.projectId,
-      );
+
+      if (!cycle.success) {
+        handleWorkerExit(state, entry.issue_id, false, cycle.error, config, deps.projectId);
+        return;
+      }
+
+      const inspection = await inspectGitWorktree(workspacePath);
+      if (inspection.type === 'dirty') {
+        if (entry.dirty_auto_resume_count >= maxDirtyAutoResumes) {
+          handleWorkerExit(
+            state,
+            entry.issue_id,
+            false,
+            `Dirty worktree remained after ${maxDirtyAutoResumes} auto-resume attempt(s)`,
+            config,
+            deps.projectId,
+          );
+          return;
+        }
+
+        entry.dirty_auto_resume_count += 1;
+        persistRunningEntry(entry, 'Dirty worktree after completed run');
+        promptContent = buildDirtyWorktreePrompt(
+          issue,
+          inspection.status,
+          entry.dirty_auto_resume_count,
+        );
+        console.warn(
+          `${formatPrefix(deps.projectId)} Dirty worktree remains for ${entry.issue_identifier}; auto-resuming (${entry.dirty_auto_resume_count}/${maxDirtyAutoResumes})`,
+        );
+        continue;
+      }
+
+      if (inspection.type === 'error') {
+        console.warn(
+          `${formatPrefix(deps.projectId)} Git worktree inspection failed for ${entry.issue_identifier} (ignored): ${inspection.error}`,
+        );
+      }
+
+      handleWorkerExit(state, entry.issue_id, true, cycle.error, config, deps.projectId);
       return;
     }
 
-    const onEvent = (event: AgentRunnerEvent): void => {
-      applyAgentRunnerEvent(state, entry.issue_id, event);
-      deps.notify();
-    };
-
-    const checkState = async (issueId: string): Promise<string | null> => {
-      const refreshed = await fetchIssueStatesByIds(deps.tracker, [issueId], deps.projectId);
-      if (refreshed === null || refreshed.length === 0) return null;
-      return refreshed[0]?.state ?? null;
-    };
-
-    const runResult = await runAgentSession(
-      sessionHandle,
-      promptContent,
-      issue,
+    handleWorkerExit(
+      state,
+      entry.issue_id,
+      false,
+      'Cancelled by reconciliation',
       config,
-      onEvent,
-      checkState,
-      signal,
+      deps.projectId,
     );
-
-    const afterResult = await runAfterRunHook(workspacePath, config);
-    if (afterResult.type === 'failure' || afterResult.type === 'timeout') {
-      console.warn(
-        `${formatPrefix(deps.projectId)} after_run hook failed (ignored): ${afterResult.error}`,
-      );
-    }
-
-    const success = runResult.status === 'completed';
-    console.log(
-      `${formatPrefix(deps.projectId)} Agent run ${runResult.status} for ${entry.issue_identifier} (${runResult.turns} turn(s)${runResult.error === null ? '' : `: ${runResult.error}`})`,
-    );
-    handleWorkerExit(state, entry.issue_id, success, runResult.error, config, deps.projectId);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     handleWorkerExit(state, entry.issue_id, false, `Worker error: ${msg}`, config, deps.projectId);
   }
+};
+
+const runAgentCycle = async (
+  state: OrchestratorState,
+  entry: RunningEntry,
+  issue: Issue,
+  workspacePath: string,
+  config: EffectiveConfig,
+  deps: PollTickDeps,
+  signal: AbortSignal,
+  promptContent: string,
+): Promise<AgentCycleResult> => {
+  let sessionHandle: AgentSessionHandle;
+  try {
+    const isResume = entry.session_file !== null;
+    sessionHandle = await deps.createSessionHandle(
+      workspacePath,
+      config,
+      issue.identifier,
+      entry.session_file,
+    );
+    entry.session_id = sessionHandle.sessionId;
+    entry.session_file = sessionHandle.sessionFile ?? entry.session_file;
+    persistRunningEntry(entry, null);
+    console.log(
+      `${formatPrefix(deps.projectId)} Agent session ${isResume ? 'resumed' : 'created'}: ${sessionHandle.sessionId} for ${issue.identifier}`,
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `${formatPrefix(deps.projectId)} Session creation failed for ${issue.identifier}: ${msg}`,
+    );
+    return {
+      success: false,
+      error: `Session creation failed: ${msg}`,
+      turns: 0,
+      status: 'failed',
+    };
+  }
+
+  const onEvent = (event: AgentRunnerEvent): void => {
+    applyAgentRunnerEvent(state, entry.issue_id, event);
+    deps.notify();
+  };
+
+  const checkState = async (issueId: string): Promise<string | null> => {
+    const refreshed = await fetchIssueStatesByIds(deps.tracker, [issueId], deps.projectId);
+    if (refreshed === null || refreshed.length === 0) return null;
+    return refreshed[0]?.state ?? null;
+  };
+
+  const runResult = await runAgentSession(
+    sessionHandle,
+    promptContent,
+    issue,
+    config,
+    onEvent,
+    checkState,
+    signal,
+  );
+
+  const afterResult = await runAfterRunHook(workspacePath, config);
+  if (afterResult.type === 'failure' || afterResult.type === 'timeout') {
+    console.warn(
+      `${formatPrefix(deps.projectId)} after_run hook failed (ignored): ${afterResult.error}`,
+    );
+  }
+
+  return {
+    success: runResult.status === 'completed',
+    error: runResult.error,
+    turns: runResult.turns,
+    status: runResult.status,
+  };
 };
 
 export const handleWorkerExit = (
@@ -396,6 +558,9 @@ export const handleWorkerExit = (
 
   if (success) {
     state.completed.add(issueId);
+    entry.attempt = 1;
+    entry.dirty_auto_resume_count = 0;
+    persistRunningEntry(entry, null);
     const retry = createRetryEntry(
       issueId,
       entry.issue_identifier,
@@ -403,11 +568,15 @@ export const handleWorkerExit = (
       true,
       config.agent.max_retry_backoff_ms,
       null,
+      entry.session_file,
+      0,
     );
     state.retry_attempts.set(issueId, retry);
     console.log(`${formatPrefix(projectId)} Worker completed for ${entry.issue_identifier}`);
   } else {
     const attempt = (entry.attempt ?? 0) + 1;
+    entry.attempt = attempt;
+    persistRunningEntry(entry, error ?? 'unknown error');
     const retry = createRetryEntry(
       issueId,
       entry.issue_identifier,
@@ -415,6 +584,8 @@ export const handleWorkerExit = (
       false,
       config.agent.max_retry_backoff_ms,
       error,
+      entry.session_file,
+      entry.dirty_auto_resume_count,
     );
     state.retry_attempts.set(issueId, retry);
     console.warn(
@@ -448,6 +619,8 @@ export const handleRetryFire = async (
       false,
       config.agent.max_retry_backoff_ms,
       'Retry fire: candidate fetch failed',
+      retryEntry.session_file,
+      retryEntry.dirty_auto_resume_count,
     );
     state.retry_attempts.set(issueId, retry);
     return;
@@ -475,10 +648,23 @@ export const handleRetryFire = async (
       false,
       config.agent.max_retry_backoff_ms,
       'no available orchestrator slots',
+      retryEntry.session_file,
+      retryEntry.dirty_auto_resume_count,
     );
     state.retry_attempts.set(issueId, retry);
     return;
   }
 
-  dispatchIssue(state, issue, config, deps);
+  dispatchIssue(state, issue, config, deps, {
+    attempt: retryEntry.attempt,
+    resumeSessionFile: retryEntry.session_file,
+    resumeReason:
+      retryEntry.session_file === null
+        ? null
+        : retryEntry.error === null
+          ? 'continuation'
+          : 'retry',
+    resumeError: retryEntry.error,
+    dirtyAutoResumeCount: retryEntry.dirty_auto_resume_count,
+  });
 };

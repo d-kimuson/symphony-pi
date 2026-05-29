@@ -2,6 +2,8 @@
 
 A long-running automation service that polls issue trackers (Linear / Jira), creates isolated per-issue workspaces, and runs [pi-coding-agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) sessions to execute coding tasks.
 
+Runtime policy is repository-owned: `WORKFLOW.md` contains both YAML front matter for configuration and a prompt body for the coding agent. Symphony reads that file, dispatches eligible issues, and lets the agent use ticket tools to report results back to the tracker.
+
 ## How It Works
 
 ```
@@ -10,27 +12,32 @@ Linear API / Jira REST
    ▼
 Issue Tracker Client ──→ Orchestrator ◄── Workflow Loader / Config Layer
                              │  │
-                             │  └──→ Logging / Runtime Snapshot / HTTP API
+                             │  └──→ Runtime Snapshot / HTTP API
                              │
-                             └──→ Workspace Manager ──→ per-issue workspace
+                             ├──→ Workspace Manager ──→ per-issue workspace
                              │
                              └──→ Agent Runner ──────→ pi-coding-agent SDK session
 ```
 
-1. **Poll**: The orchestrator polls the issue tracker at a configurable interval.
-2. **Dispatch**: Eligible issues (active state, not already running, slots available) are dispatched to workers.
-3. **Workspace**: A per-issue workspace directory is created/reused under the workspace root.
-4. **Agent**: A pi-coding-agent SDK session runs the task prompt rendered from `WORKFLOW.md` using the issue data.
-5. **Complete**: The agent uses ticket tools (`ticket_comment`, `ticket_transition`) to report results and move tickets to handoff/terminal states.
+1. **Poll**: The orchestrator polls the configured issue tracker at a fixed cadence.
+2. **Select**: Eligible issues are active, not already claimed/running, not terminal, and within configured concurrency limits.
+3. **Workspace**: A deterministic per-issue workspace is created or reused under the configured workspace root.
+4. **Run**: A pi-coding-agent SDK session receives a prompt rendered from `WORKFLOW.md` and runs inside the issue workspace.
+5. **Report**: The agent can call `ticket_get`, `ticket_comment`, and `ticket_transition` to read, comment on, and move the issue.
+6. **Observe / retry**: The service exposes runtime state over HTTP and retries transient failures with bounded backoff.
 
-The entire runtime policy — tracker config, polling cadence, concurrency, template prompt, and hooks — is owned by a single repository file: `WORKFLOW.md`.
+A successful run may move an issue to a workflow-defined handoff state such as `Human Review`; it does not have to move directly to `Done`.
 
 ## Quick Start
 
 ### Prerequisites
 
-- **Node.js** ≥ 24 (see [`.node-version`](./.node-version))
-- **pnpm** ≥ 10 (`corepack enable` recommended)
+- **Node.js** `v24.15.0` (see [`.node-version`](./.node-version))
+- **pnpm** `11.2.2` via Corepack (see `packageManager` in [`package.json`](./package.json))
+
+```bash
+corepack enable
+```
 
 ### Installation
 
@@ -42,9 +49,11 @@ pnpm install
 
 ### Configuration
 
-Create `WORKFLOW.md` at the project root (or point to a custom path with `--workflow-path`). Minimum required:
+Create `WORKFLOW.md` at the project root, or pass a custom workflow path as the CLI positional argument. A workflow file must include YAML front matter **and** a non-empty prompt body.
 
-```yaml
+Minimal Linear example:
+
+```markdown
 ---
 tracker:
   kind: linear
@@ -52,6 +61,10 @@ tracker:
   team_key: $LINEAR_TEAM_KEY
   project_slug: my-project
 ---
+
+You are a coding agent working on issue {{ issue.identifier }}: {{ issue.title }}.
+
+Read the issue, implement the requested changes, test your work, comment with the result, and transition the ticket to the appropriate state.
 ```
 
 Set the required environment variables:
@@ -60,6 +73,8 @@ Set the required environment variables:
 export LINEAR_API_KEY=your-linear-api-key
 export LINEAR_TEAM_KEY=your-linear-team-key
 ```
+
+For Jira, use `tracker.kind: jira` with the Jira-specific fields and set `JIRA_EMAIL` / `JIRA_API_TOKEN` as needed.
 
 For a repository-backed workspace, configure `hooks.after_create` to attach a git worktree from the repo that owns `WORKFLOW.md`:
 
@@ -84,57 +99,67 @@ Hook processes run with these helper environment variables:
 
 `pi.tools` is optional. If you omit it (or set it to `[]`), Symphony leaves pi's default tool set unrestricted and still adds the required ticket tools. Configure `pi.tools` only when you want an explicit allowlist.
 
-For the tracker schema reference, see the [Workflow Specification](./WORKFLOW.md) and [`docs/SPEC.md`](./docs/SPEC.md).
+See [`WORKFLOW.md`](./WORKFLOW.md) for this repository's active workflow and [`docs/SPEC.md`](./docs/SPEC.md) for the full workflow/configuration contract.
 
 ### Running
 
 ```bash
-# Development mode (server + dashboard)
+# Development mode: server + Vite dashboard
 pnpm dev
 
-# Server only
+# Server only, with Node watch mode
 pnpm dev:server
 
-# Custom port
+# Custom preferred server port
 pnpm dev:server -- --port 9999
 
-# Custom workflow file
-pnpm dev:server -- --workflow-path ./custom/WORKFLOW.md
+# Custom workflow file (positional argument)
+pnpm dev:server -- ./custom/WORKFLOW.md
+
+# Dashboard only (Vite dev server)
+pnpm dev:web
 ```
 
-The dashboard is served at `http://127.0.0.1:<port>` (default preferred port: `48484`). The JSON API for programmatic access is at `/api/v1/*`.
+Default server binding comes from `WORKFLOW.md`: `127.0.0.1:48484`. The HTTP server uses get-port semantics, so the selected port may differ if the preferred port is unavailable.
+
+Notes:
+
+- `pnpm dev` runs both server and web dashboard scripts.
+- The backend `GET /` route serves a lightweight inline status page.
+- The React/TanStack dashboard runs through Vite during development and reads `/api/v1/state`.
+- Vite currently proxies `/api` to `http://localhost:48484`; keep the backend on that port for dashboard development or update the proxy in [`vite.config.ts`](./vite.config.ts).
 
 ## API Endpoints
 
-| Method | Path                  | Description              |
-| ------ | --------------------- | ------------------------ |
-| GET    | `/`                   | Dashboard UI             |
-| GET    | `/api/v1/state`       | Runtime snapshot (JSON)  |
-| GET    | `/api/v1/:identifier` | Per-issue details (JSON) |
-| POST   | `/api/v1/refresh`     | Trigger immediate poll   |
+| Method | Path                  | Description                                                        |
+| ------ | --------------------- | ------------------------------------------------------------------ |
+| GET    | `/`                   | Lightweight backend status page / dashboard UI                     |
+| GET    | `/info`               | Health check (`{ status: "healthy", server: "symphony-pi" }`)      |
+| GET    | `/api/v1/state`       | Runtime snapshot: running sessions, retries, totals, rate limits   |
+| GET    | `/api/v1/:identifier` | In-memory runtime lookup for an issue; does not fetch tracker data |
+| POST   | `/api/v1/refresh`     | Request an immediate poll tick                                     |
 
 ## Project Structure
 
 ```
 src/
-├── main.ts                    # Entry point
-├── lib/                       # Shared utilities
+├── main.ts                    # Production entry point
+├── lib/                       # Shared utilities and contracts
 ├── server/
-│   ├── app.ts                 # Hono app
-│   ├── cli.ts                 # CLI args
-│   ├── routes.ts              # Route setup
-│   ├── server.ts              # HTTP server (get-port)
+│   ├── app.ts                 # Hono app construction
+│   ├── cli.ts                 # CLI argument parsing
+│   ├── routes.ts              # Top-level routes
+│   ├── server.ts              # HTTP server startup (get-port)
 │   └── app/
-│       ├── agents/            # Agent runner (pi SDK integration)
-│       ├── config/            # Config layer & dynamic reload
-│       ├── issues/            # Issue model & tracker adapters
-│       │   └── adapters/      # Linear + Jira adapters
-│       ├── logs/              # Structured logging
-│       ├── orchestrator/      # Poll loop & state machine
-│       ├── status/            # Runtime snapshot API
-│       ├── workflow/          # WORKFLOW.md loader
-│       └── workspaces/        # Workspace manager & hooks
-└── web/                       # Dashboard (TanStack Start + React)
+│       ├── agents/            # pi-coding-agent SDK integration and ticket tools
+│       ├── config/            # Effective config resolution and validation
+│       ├── issues/            # Issue model, tracker adapters, and fetch workflows
+│       │   └── adapters/      # Linear and Jira adapters
+│       ├── orchestrator/      # Poll loop, scheduling, retry, reconciliation state
+│       ├── status/            # Runtime snapshot and status/control API
+│       ├── workflow/          # WORKFLOW.md parser/loader
+│       └── workspaces/        # Per-issue workspace management and hooks
+└── web/                       # Vite/TanStack Start/React dashboard
     └── app/
 ```
 
@@ -142,35 +167,45 @@ src/
 
 | Command                | Description                                  |
 | ---------------------- | -------------------------------------------- |
-| `pnpm dev`             | Start server + dashboard in parallel         |
-| `pnpm dev:server`      | Start server only (with watch)               |
-| `pnpm dev:web`         | Start dashboard dev server only              |
+| `pnpm dev`             | Start server and dashboard in parallel       |
+| `pnpm dev:server`      | Start server only with Node watch mode       |
+| `pnpm dev:web`         | Start Vite dashboard dev server only         |
 | `pnpm build`           | Build server (`dist/`) then web (`dist/web`) |
 | `pnpm build:server`    | Bundle server entry with tsdown              |
 | `pnpm build:web`       | Build dashboard into `dist/web`              |
-| `pnpm typecheck`       | TypeScript type checking                     |
-| `pnpm test`            | Run test suite (vitest)                      |
-| `pnpm test:coverage`   | Run tests with coverage report               |
-| `pnpm lint`            | Run oxlint + oxfmt check                     |
-| `pnpm fix`             | Auto-fix lint/format issues                  |
-| `pnpm gatecheck check` | Run all quality gates                        |
+| `pnpm typecheck`       | Run TypeScript type checking                 |
+| `pnpm lint`            | Run oxlint and oxfmt checks                  |
+| `pnpm fix`             | Auto-fix supported lint/format issues        |
+| `pnpm test`            | Run the Vitest test suite                    |
+| `pnpm test:coverage`   | Run tests with coverage                      |
+| `pnpm gatecheck check` | Run the repository quality gate              |
+
+## Operational Model
+
+- **Tracker state**: Active, terminal, handoff, and transition states are configured in `WORKFLOW.md`.
+- **Concurrency**: Global and per-state concurrency limits are enforced by the orchestrator.
+- **Retries**: Normal continuations and failures are retried with bounded delays.
+- **Workspaces**: Workspace paths are deterministic per issue and can be prepared/cleaned with lifecycle hooks.
+- **No database**: Runtime scheduling state is in memory; workspaces and tracker state provide restart recovery boundaries.
+- **Agent integration**: Agent sessions are created through the public `@earendil-works/pi-coding-agent` SDK surface.
 
 ## Documentation
 
 - [`docs/SPEC.md`](./docs/SPEC.md) — Full service specification
 - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — Implementation roadmap
 - [`docs/coding-guideline.md`](./docs/coding-guideline.md) — Coding philosophy
-- [`docs/coding-process.md`](./docs/coding-process.md) — Development process & Definition of Done
+- [`docs/coding-process.md`](./docs/coding-process.md) — Development process and Definition of Done
 - [`docs/commit_message.md`](./docs/commit_message.md) — Commit conventions
-- [`docs/v0-report.md`](./docs/v0-report.md) — v0 implementation report
+- [`docs/branch_naming.md`](./docs/branch_naming.md) — Branch naming conventions
+- [`docs/e2e-exploratory-testing-process.md`](./docs/e2e-exploratory-testing-process.md) — E2E exploratory testing process
 
 ## Tech Stack
 
 - **Runtime**: Node.js, TypeScript
-- **Backend**: [Hono](https://hono.dev/) (HTTP framework), `@earendil-works/pi-coding-agent` (SDK)
+- **Backend**: [Hono](https://hono.dev/), `@earendil-works/pi-coding-agent`, Commander, TypeBox, Valibot, YAML, LiquidJS
 - **Frontend**: [TanStack Start](https://tanstack.com/start), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Tailwind CSS](https://tailwindcss.com/)
-- **Testing**: [Vitest](https://vitest.dev/), [Playwright](https://playwright.dev/) (for browser component tests)
-- **Tooling**: oxlint, oxfmt, lefthook, gatecheck
+- **Testing**: [Vitest](https://vitest.dev/), [Playwright](https://playwright.dev/) browser provider
+- **Tooling**: pnpm, gatecheck, oxlint, oxfmt, lefthook
 
 ## License
 

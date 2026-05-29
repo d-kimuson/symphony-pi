@@ -29,7 +29,7 @@
 対象:
 
 - `src/server/server.ts`
-- `src/main.ts`
+- `src/server/main.ts`
 - `src/server/app/config/*`
 
 要件:

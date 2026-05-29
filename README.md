@@ -110,6 +110,9 @@ pnpm dev
 # Server only, with Node watch mode
 pnpm dev:server
 
+# Production CLI entrypoint after build
+pnpm start -- --help
+
 # Custom preferred server port
 pnpm dev:server -- --port 9999
 
@@ -143,11 +146,12 @@ Notes:
 
 ```
 src/
-├── main.ts                    # Production entry point
+├── cli.ts                     # Public CLI entry point bundled for npm
 ├── lib/                       # Shared utilities and contracts
 ├── server/
 │   ├── app.ts                 # Hono app construction
 │   ├── cli.ts                 # CLI argument parsing
+│   ├── main.ts                # pnpm dev entry point / CLI runtime bootstrap
 │   ├── routes.ts              # Top-level routes
 │   ├── server.ts              # HTTP server startup (get-port)
 │   └── app/
@@ -167,17 +171,20 @@ src/
 
 | Command                | Description                                  |
 | ---------------------- | -------------------------------------------- |
+| `pnpm start -- --help` | Run the bundled public CLI entrypoint        |
 | `pnpm dev`             | Start server and dashboard in parallel       |
 | `pnpm dev:server`      | Start server only with Node watch mode       |
 | `pnpm dev:web`         | Start Vite dashboard dev server only         |
 | `pnpm build`           | Build server (`dist/`) then web (`dist/web`) |
-| `pnpm build:server`    | Bundle server entry with tsdown              |
+| `pnpm build:server`    | Bundle the CLI/server runtime with tsdown    |
 | `pnpm build:web`       | Build dashboard into `dist/web`              |
 | `pnpm typecheck`       | Run TypeScript type checking                 |
 | `pnpm lint`            | Run oxlint and oxfmt checks                  |
 | `pnpm fix`             | Auto-fix supported lint/format issues        |
 | `pnpm test`            | Run the Vitest test suite                    |
-| `pnpm test:coverage`   | Run tests with coverage                      |
+| `pnpm test:coverage`   | Run unit tests with coverage                 |
+| `pnpm release`         | Run release checks, tag, and push            |
+| `pnpm smoke:pack`      | Verify the packed npm artifact boots         |
 | `pnpm gatecheck check` | Run the repository quality gate              |
 
 ## Operational Model

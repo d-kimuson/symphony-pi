@@ -1,22 +1,22 @@
-/** Symphony-pi entry point. */
+/** Symphony-pi server entry point. */
 
-import { resolve, basename } from 'node:path';
+import { basename, resolve } from 'node:path';
 
-import { createHonoApp } from './server/app.ts';
-import { createRealSessionHandle } from './server/app/agents/workflows/runAgentSession.ts';
-import { bootstrapProjectRuntime } from './server/app/bootstrap.ts';
-import { createTrackerAdapter } from './server/app/issues/adapters/adapterFactory.ts';
-import { createProjectRegistry, type ProjectRuntime } from './server/app/runtime/model.ts';
-import { applyBootstrapFailurePolicy } from './server/bootstrapFailurePolicy.ts';
-import { parseCliArgs } from './server/cli.ts';
-import { routes } from './server/routes.ts';
-import { resolveSymphonyRuntime, type SymphonyRuntime } from './server/runtime.ts';
-import { startServer } from './server/server.ts';
+import { createHonoApp } from './app.ts';
+import { createRealSessionHandle } from './app/agents/workflows/runAgentSession.ts';
+import { bootstrapProjectRuntime } from './app/bootstrap.ts';
+import { createTrackerAdapter } from './app/issues/adapters/adapterFactory.ts';
+import { createProjectRegistry, type ProjectRuntime } from './app/runtime/model.ts';
+import { applyBootstrapFailurePolicy } from './bootstrapFailurePolicy.ts';
+import { parseCliArgs } from './cli.ts';
+import { routes } from './routes.ts';
+import { resolveSymphonyRuntime, type SymphonyRuntime } from './runtime.ts';
+import { startServer } from './server.ts';
 import {
   inferProjectRootFromWorkflow,
   sanitizeProjectId,
-} from './server/serviceConfig/services/projectConfig.ts';
-import { loadServiceConfig } from './server/serviceConfig/workflows/loadServiceConfig.ts';
+} from './serviceConfig/services/projectConfig.ts';
+import { loadServiceConfig } from './serviceConfig/workflows/loadServiceConfig.ts';
 
 const exitWithError = (message: string): never => {
   console.error(message);
@@ -121,8 +121,8 @@ const installShutdownHandlers = (
   });
 };
 
-const main = async (): Promise<void> => {
-  const args = parseCliArgs(process.argv);
+export const runSymphonyCli = async (argv: readonly string[] = process.argv): Promise<void> => {
+  const args = parseCliArgs(argv);
   const runtime = resolveSymphonyRuntime();
 
   const runtimes =
@@ -149,8 +149,10 @@ const main = async (): Promise<void> => {
   );
 };
 
-void main().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(`[symphony] Fatal bootstrap error: ${message}`);
-  process.exit(1);
-});
+if (import.meta.main) {
+  void runSymphonyCli().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[symphony] Fatal bootstrap error: ${message}`);
+    process.exit(1);
+  });
+}

@@ -43,6 +43,8 @@ Additional checks when relevant:
 | `pnpm dev:web`         | Start Vite dashboard dev server with `/api` proxy        |
 | `pnpm build`           | Build server (`dist/`) and web (`dist/web`)              |
 | `pnpm build:web`       | Build the dashboard static app into `dist/web`           |
+| `pnpm smoke:pack`      | Verify the packed npm artifact boots                     |
+| `pnpm release`         | Run release checks, create a signed tag, and push        |
 | `pnpm prepare`         | Install lefthook hooks                                   |
 
 Long-running dev servers/watchers should be started via `pueue`, for example:

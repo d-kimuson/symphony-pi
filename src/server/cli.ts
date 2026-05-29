@@ -5,6 +5,8 @@
 
 import { Command } from 'commander';
 
+import pkg from '../../package.json' with { type: 'json' };
+
 export type CliArgs =
   | {
       readonly mode: 'workflow';
@@ -24,9 +26,9 @@ export const parseCliArgs = (argv: readonly string[]): CliArgs => {
   const program = new Command();
 
   program
-    .name('symphony')
-    .description('Long-running automation service that runs coding agents for issue tracker work')
-    .version('0.0.0')
+    .name(pkg.name)
+    .description(pkg.description)
+    .version(pkg.version)
     .argument('[workflow-path]', 'Path to WORKFLOW.md')
     .option('-c, --config <path>', 'Path to multi-project service config JSON')
     .option('-p, --port <number>', 'Preferred HTTP server port (default: 48484)', (val) => {

@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -101,19 +101,32 @@ describe('loadServiceConfig', () => {
   });
 
   it('expands ~ in project roots', () => {
-    const suffix = `symphony-home-${Date.now()}`;
-    const projectRoot = join(homedir(), suffix);
-    tempDirs.push(projectRoot);
-    writeWorkflow(projectRoot);
     const root = makeTempDir();
-    const configPath = writeConfig(root, {
-      projects: [`~/${suffix}`],
-    });
+    const fakeHome = join(root, 'fake-home');
+    const suffix = `symphony-home-${Date.now()}`;
+    const projectRoot = join(fakeHome, suffix);
+    const previousHome = process.env['HOME'];
 
-    const result = loadServiceConfig(configPath);
-    expect(result.type).toBe('loaded');
-    if (result.type !== 'loaded') throw new Error('expected loaded');
-    expect(result.config.projects[0]?.root).toBe(projectRoot);
+    tempDirs.push(fakeHome);
+    writeWorkflow(projectRoot);
+    process.env['HOME'] = fakeHome;
+
+    try {
+      const configPath = writeConfig(root, {
+        projects: [`~/${suffix}`],
+      });
+
+      const result = loadServiceConfig(configPath);
+      expect(result.type).toBe('loaded');
+      if (result.type !== 'loaded') throw new Error('expected loaded');
+      expect(result.config.projects[0]?.root).toBe(projectRoot);
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env['HOME'];
+      } else {
+        process.env['HOME'] = previousHome;
+      }
+    }
   });
 
   it('rejects duplicate ids', () => {

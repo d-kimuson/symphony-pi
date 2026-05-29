@@ -35,3 +35,12 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Run build
+        run: pnpm build
+
+      - name: Check bundled package licenses
+        run: pnpm check:bundled-licenses
+
+      - name: Run packed package smoke test
+        run: pnpm smoke:pack:check

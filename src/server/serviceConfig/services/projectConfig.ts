@@ -15,7 +15,7 @@ const normalizeProjectId = (value: string): string => {
   return sanitized.length > 0 ? sanitized : 'project';
 };
 
-const resolveProjectRoot = (input: ProjectConfigInput, configDir: string): string => {
+export const resolveProjectRoot = (input: ProjectConfigInput, configDir: string): string => {
   if (typeof input === 'string') {
     return resolvePath(input, configDir);
   }
@@ -23,7 +23,7 @@ const resolveProjectRoot = (input: ProjectConfigInput, configDir: string): strin
   return resolvePath(input.root, configDir);
 };
 
-const resolveWorkflowPath = (input: ProjectConfigInput, projectRoot: string): string => {
+export const resolveWorkflowPath = (input: ProjectConfigInput, projectRoot: string): string => {
   if (typeof input === 'string') {
     return resolve(projectRoot, 'WORKFLOW.md');
   }
@@ -32,7 +32,7 @@ const resolveWorkflowPath = (input: ProjectConfigInput, projectRoot: string): st
   return resolvePath(workflow, projectRoot);
 };
 
-const resolveProjectId = (input: ProjectConfigInput, projectRoot: string): string => {
+export const resolveProjectId = (input: ProjectConfigInput, projectRoot: string): string => {
   if (typeof input === 'string') {
     return normalizeProjectId(basename(projectRoot));
   }
@@ -44,27 +44,36 @@ const resolveProjectId = (input: ProjectConfigInput, projectRoot: string): strin
   return normalizeProjectId(basename(projectRoot));
 };
 
-export const resolveProjectConfig = (
+export const deriveProjectConfig = (
   input: ProjectConfigInput,
   configDir: string,
-): ResolvedProjectConfig | string => {
+): ResolvedProjectConfig => {
   const root = resolveProjectRoot(input, configDir);
   const workflowPath = resolveWorkflowPath(input, root);
   const id = resolveProjectId(input, root);
-
-  if (!existsSync(root)) {
-    return `Project root does not exist: ${root}`;
-  }
-
-  if (!existsSync(workflowPath)) {
-    return `Workflow file does not exist: ${workflowPath}`;
-  }
 
   return {
     id,
     root,
     workflowPath,
   };
+};
+
+export const resolveProjectConfig = (
+  input: ProjectConfigInput,
+  configDir: string,
+): ResolvedProjectConfig | string => {
+  const derived = deriveProjectConfig(input, configDir);
+
+  if (!existsSync(derived.root)) {
+    return `Project root does not exist: ${derived.root}`;
+  }
+
+  if (!existsSync(derived.workflowPath)) {
+    return `Workflow file does not exist: ${derived.workflowPath}`;
+  }
+
+  return derived;
 };
 
 export const inferProjectRootFromWorkflow = (workflowPath: string): string => {

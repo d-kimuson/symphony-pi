@@ -1,7 +1,5 @@
 /** Symphony-pi server entry point. */
 
-import { basename, resolve } from 'node:path';
-
 import { createHonoApp } from './app.ts';
 import { createRealSessionHandle } from './app/agents/workflows/runAgentSession.ts';
 import { bootstrapProjectRuntime } from './app/bootstrap.ts';
@@ -9,47 +7,16 @@ import { createTrackerAdapter } from './app/issues/adapters/adapterFactory.ts';
 import { createProjectRegistry, type ProjectRuntime } from './app/runtime/model.ts';
 import { applyBootstrapFailurePolicy } from './bootstrapFailurePolicy.ts';
 import { parseCliArgs } from './cli.ts';
+import { deleteProjectCommand, addProjectCommand, listProjectsCommand } from './projectsCli.ts';
 import { routes } from './routes.ts';
 import { resolveSymphonyRuntime, type SymphonyRuntime } from './runtime.ts';
 import { startServer } from './server.ts';
-import {
-  inferProjectRootFromWorkflow,
-  sanitizeProjectId,
-} from './serviceConfig/services/projectConfig.ts';
+import { defaultProjectsConfigPath } from './serviceConfig/services/projectsFile.ts';
 import { loadServiceConfig } from './serviceConfig/workflows/loadServiceConfig.ts';
 
 const exitWithError = (message: string): never => {
   console.error(message);
   process.exit(1);
-};
-
-const bootstrapSingleProject = async (
-  workflowPath: string,
-  runtime: SymphonyRuntime,
-): Promise<readonly ProjectRuntime[]> => {
-  const resolvedWorkflowPath = resolve(workflowPath);
-  const projectRoot = inferProjectRootFromWorkflow(resolvedWorkflowPath);
-  const projectId = sanitizeProjectId(basename(projectRoot));
-
-  const result = await bootstrapProjectRuntime({
-    projectId,
-    projectRoot,
-    workflowPath: resolvedWorkflowPath,
-    createTrackerAdapter,
-    createSessionHandle: createRealSessionHandle,
-  });
-
-  const handled = applyBootstrapFailurePolicy({
-    runtime,
-    result,
-    failureMessage: `[symphony] Bootstrap failed at phase "${'type' in result ? result.phase : 'unknown'}": ${'type' in result ? result.message : ''}`,
-  });
-
-  if (handled.warning !== null) {
-    console.warn(handled.warning);
-  }
-
-  return handled.runtime === null ? [] : [handled.runtime];
 };
 
 const bootstrapConfiguredProjects = async (
@@ -58,14 +25,7 @@ const bootstrapConfiguredProjects = async (
 ): Promise<readonly ProjectRuntime[]> => {
   const configResult = loadServiceConfig(configPath);
   if (configResult.type !== 'loaded') {
-    if (runtime === 'prod') {
-      return exitWithError(`[symphony] Failed to load service config: ${configResult.error}`);
-    }
-
-    console.warn(
-      `[symphony] Failed to load service config: ${configResult.error} (continuing without project runtime because SYMPHONY_RUNTIME=${runtime})`,
-    );
-    return [];
+    return exitWithError(`[symphony] Failed to load service config: ${configResult.error}`);
   }
 
   const serviceConfig = configResult.config;
@@ -121,15 +81,10 @@ const installShutdownHandlers = (
   });
 };
 
-export const runSymphonyCli = async (argv: readonly string[] = process.argv): Promise<void> => {
-  const args = parseCliArgs(argv);
+const runStartCommand = async (port: number | undefined): Promise<void> => {
   const runtime = resolveSymphonyRuntime();
-
-  const runtimes =
-    args.mode === 'config'
-      ? await bootstrapConfiguredProjects(args.configPath, runtime)
-      : await bootstrapSingleProject(args.workflowPath, runtime);
-
+  const configPath = defaultProjectsConfigPath();
+  const runtimes = await bootstrapConfiguredProjects(configPath, runtime);
   const mode = runtimes.length > 1 ? 'multi-project' : 'single-project';
   const registry = createProjectRegistry(mode, runtimes);
   const app = createHonoApp();
@@ -139,7 +94,7 @@ export const runSymphonyCli = async (argv: readonly string[] = process.argv): Pr
   const firstConfig = firstRuntime?.getConfig();
   const serverResult = await startServer({
     app,
-    preferredPort: args.port ?? firstConfig?.server.port,
+    preferredPort: port ?? firstConfig?.server.port,
     host: firstConfig?.server.host,
   });
 
@@ -147,6 +102,29 @@ export const runSymphonyCli = async (argv: readonly string[] = process.argv): Pr
   console.log(
     `[symphony] Service started successfully (${mode}, ${runtimes.length} project(s), runtime=${runtime})`,
   );
+};
+
+export const runSymphonyCli = async (argv: readonly string[] = process.argv): Promise<void> => {
+  const args = parseCliArgs(argv);
+
+  switch (args.command) {
+    case 'start':
+      await runStartCommand(args.port);
+      return;
+    case 'projects-list':
+      listProjectsCommand();
+      return;
+    case 'projects-add':
+      await addProjectCommand();
+      return;
+    case 'projects-delete':
+      await deleteProjectCommand();
+      return;
+    default: {
+      const exhaustive: never = args;
+      return exhaustive;
+    }
+  }
 };
 
 if (import.meta.main) {

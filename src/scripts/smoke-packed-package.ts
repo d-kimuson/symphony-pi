@@ -47,7 +47,7 @@ try {
     throw new Error('Packed package is missing dist/web/assets');
   }
 
-  execFileSync(process.execPath, [path.join(packageDirectory, 'dist/cli.mjs'), '--help'], {
+  execFileSync(process.execPath, [path.join(packageDirectory, 'dist/cli.mjs'), 'start', '--help'], {
     stdio: 'inherit',
   });
 } finally {

@@ -2077,11 +2077,11 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 
 ### 17.7 CLI and Host Lifecycle
 
-- CLI accepts a positional workflow path argument (`path-to-WORKFLOW.md`)
-- CLI uses `./WORKFLOW.md` when no workflow path argument is provided
-- CLI errors on nonexistent explicit workflow path or missing default `./WORKFLOW.md`
+- CLI uses `start` as the explicit service boot command
+- CLI reads managed projects from `~/.symphony-pi/projects.json`
+- CLI provides `projects list/add/delete` management commands for that file
 - CLI surfaces startup failure cleanly
-- CLI `--port` overrides `server.port`
+- CLI `start --port` overrides `server.port`
 - CLI exits with success when application starts and shuts down normally
 - CLI exits nonzero when startup fails or the host process exits abnormally
 

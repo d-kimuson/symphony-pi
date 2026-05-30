@@ -1,63 +1,77 @@
-/**
- * CLI argument parsing using Commander.
- * Supports either a single workflow path or a multi-project config JSON.
- */
-
 import { Command } from 'commander';
 
 import pkg from '../../package.json' with { type: 'json' };
 
 export type CliArgs =
   | {
-      readonly mode: 'workflow';
-      readonly workflowPath: string;
+      readonly command: 'start';
       readonly port?: number;
     }
   | {
-      readonly mode: 'config';
-      readonly configPath: string;
-      readonly port?: number;
+      readonly command: 'projects-list';
+    }
+  | {
+      readonly command: 'projects-add';
+    }
+  | {
+      readonly command: 'projects-delete';
     };
 
-/**
- * Parse process.argv into typed CLI options using Commander.
- */
+const parsePort = (value: string): number => {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0 || parsed > 65535) {
+    throw new Error(`Invalid port: ${value}. Must be a number between 1 and 65535.`);
+  }
+  return parsed;
+};
+
 export const parseCliArgs = (argv: readonly string[]): CliArgs => {
   const program = new Command();
+  let parsedArgs: CliArgs | null = null;
+
+  program.name(pkg.name).description(pkg.description).version(pkg.version);
 
   program
-    .name(pkg.name)
-    .description(pkg.description)
-    .version(pkg.version)
-    .argument('[workflow-path]', 'Path to WORKFLOW.md')
-    .option('-c, --config <path>', 'Path to multi-project service config JSON')
-    .option('-p, --port <number>', 'Preferred HTTP server port (default: 48484)', (val) => {
-      const parsed = parseInt(val, 10);
-      if (Number.isNaN(parsed) || parsed <= 0 || parsed > 65535) {
-        throw new Error(`Invalid port: ${val}. Must be a number between 1 and 65535.`);
-      }
-      return parsed;
-    })
-    .parse([...argv]);
+    .command('start')
+    .description('Start Symphony using ~/.symphony-pi/projects.json')
+    .option('-p, --port <number>', 'Preferred HTTP server port (default: 48484)', parsePort)
+    .action((options: { readonly port?: number }) => {
+      parsedArgs = {
+        command: 'start',
+        port: options.port,
+      };
+    });
 
-  const opts = program.opts<{ config?: string; port?: number }>();
-  const workflowPath = program.args[0];
+  const projectsCommand = program
+    .command('projects')
+    .description('Manage ~/.symphony-pi/projects.json');
 
-  if (workflowPath !== undefined && opts.config !== undefined) {
-    throw new Error('Cannot specify both a workflow path and --config.');
+  projectsCommand
+    .command('list')
+    .description('List configured projects')
+    .action(() => {
+      parsedArgs = { command: 'projects-list' };
+    });
+
+  projectsCommand
+    .command('add')
+    .description('Interactively add a project')
+    .action(() => {
+      parsedArgs = { command: 'projects-add' };
+    });
+
+  projectsCommand
+    .command('delete')
+    .description('Interactively delete a project')
+    .action(() => {
+      parsedArgs = { command: 'projects-delete' };
+    });
+
+  program.parse([...argv]);
+
+  if (parsedArgs !== null) {
+    return parsedArgs;
   }
 
-  if (opts.config !== undefined) {
-    return {
-      mode: 'config',
-      configPath: opts.config,
-      port: opts.port,
-    };
-  }
-
-  return {
-    mode: 'workflow',
-    workflowPath: workflowPath ?? './WORKFLOW.md',
-    port: opts.port,
-  };
+  throw new Error('A command is required. Use --help to see available commands.');
 };

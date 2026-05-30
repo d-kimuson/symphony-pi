@@ -49,7 +49,7 @@ pnpm install
 
 ### Configuration
 
-Create `WORKFLOW.md` at the project root, or pass a custom workflow path as the CLI positional argument. A workflow file must include YAML front matter **and** a non-empty prompt body.
+Each managed repository must contain a `WORKFLOW.md` file with YAML front matter **and** a non-empty prompt body. Symphony itself reads the project list from `~/.symphony-pi/projects.json`.
 
 Minimal Linear example:
 
@@ -99,6 +99,26 @@ Hook processes run with these helper environment variables:
 
 `pi.tools` is optional. If you omit it (or set it to `[]`), Symphony leaves pi's default tool set unrestricted and still adds the required ticket tools. Configure `pi.tools` only when you want an explicit allowlist.
 
+Register projects in `~/.symphony-pi/projects.json`. Example:
+
+```json
+{
+  "projects": [
+    "/path/to/repo-a",
+    "/path/to/repo-b"
+  ]
+}
+```
+
+You can also manage this file from the CLI:
+
+```bash
+pnpm start -- --help
+node ./src/cli.ts projects list
+node ./src/cli.ts projects add
+node ./src/cli.ts projects delete
+```
+
 See [`WORKFLOW.md`](./WORKFLOW.md) for this repository's active workflow and [`docs/SPEC.md`](./docs/SPEC.md) for the full workflow/configuration contract.
 
 ### Running
@@ -113,11 +133,11 @@ pnpm dev:server
 # Production CLI entrypoint after build
 pnpm start -- --help
 
-# Custom preferred server port
-pnpm dev:server -- --port 9999
+# Start the bundled service
+pnpm start
 
-# Custom workflow file (positional argument)
-pnpm dev:server -- ./custom/WORKFLOW.md
+# Start with a custom preferred server port
+pnpm start -- --port 9999
 
 # Dashboard only (Vite dev server)
 pnpm dev:web
@@ -151,7 +171,8 @@ src/
 ├── server/
 │   ├── app.ts                 # Hono app construction
 │   ├── cli.ts                 # CLI argument parsing
-│   ├── main.ts                # pnpm dev entry point / CLI runtime bootstrap
+│   ├── main.ts                # start / projects command dispatcher
+│   ├── projectsCli.ts         # interactive projects.json management
 │   ├── routes.ts              # Top-level routes
 │   ├── server.ts              # HTTP server startup (get-port)
 │   └── app/
@@ -169,23 +190,24 @@ src/
 
 ## Commands
 
-| Command                | Description                                  |
-| ---------------------- | -------------------------------------------- |
-| `pnpm start -- --help` | Run the bundled public CLI entrypoint        |
-| `pnpm dev`             | Start server and dashboard in parallel       |
-| `pnpm dev:server`      | Start server only with Node watch mode       |
-| `pnpm dev:web`         | Start Vite dashboard dev server only         |
-| `pnpm build`           | Build server (`dist/`) then web (`dist/web`) |
-| `pnpm build:server`    | Bundle the CLI/server runtime with tsdown    |
-| `pnpm build:web`       | Build dashboard into `dist/web`              |
-| `pnpm typecheck`       | Run TypeScript type checking                 |
-| `pnpm lint`            | Run oxlint and oxfmt checks                  |
-| `pnpm fix`             | Auto-fix supported lint/format issues        |
-| `pnpm test`            | Run the Vitest test suite                    |
-| `pnpm test:coverage`   | Run unit tests with coverage                 |
-| `pnpm release`         | Run release checks, tag, and push            |
-| `pnpm smoke:pack`      | Verify the packed npm artifact boots         |
-| `pnpm gatecheck check` | Run the repository quality gate              |
+| Command                | Description                                       |
+| ---------------------- | ------------------------------------------------- |
+| `pnpm start -- --help` | Show bundled CLI help                             |
+| `pnpm start`           | Start Symphony using ~/.symphony-pi/projects.json |
+| `pnpm dev`             | Start server and dashboard in parallel            |
+| `pnpm dev:server`      | Start server only with Node watch mode            |
+| `pnpm dev:web`         | Start Vite dashboard dev server only              |
+| `pnpm build`           | Build server (`dist/`) then web (`dist/web`)      |
+| `pnpm build:server`    | Bundle the CLI/server runtime with tsdown         |
+| `pnpm build:web`       | Build dashboard into `dist/web`                   |
+| `pnpm typecheck`       | Run TypeScript type checking                      |
+| `pnpm lint`            | Run oxlint and oxfmt checks                       |
+| `pnpm fix`             | Auto-fix supported lint/format issues             |
+| `pnpm test`            | Run the Vitest test suite                         |
+| `pnpm test:coverage`   | Run unit tests with coverage                      |
+| `pnpm release`         | Run release checks, tag, and push                 |
+| `pnpm smoke:pack`      | Verify the packed npm artifact boots              |
+| `pnpm gatecheck check` | Run the repository quality gate                   |
 
 ## Operational Model
 

@@ -230,6 +230,7 @@ src/
 - [`docs/commit_message.md`](./docs/commit_message.md) — Commit conventions
 - [`docs/branch_naming.md`](./docs/branch_naming.md) — Branch naming conventions
 - [`docs/e2e-exploratory-testing-process.md`](./docs/e2e-exploratory-testing-process.md) — E2E exploratory testing process
+- [`docs/release-note-guideline.md`](./docs/release-note-guideline.md) — Release note rewriting guideline
 
 ## Tech Stack
 

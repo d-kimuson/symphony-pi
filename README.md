@@ -60,6 +60,8 @@ tracker:
   api_key: $LINEAR_API_KEY
   team_key: $LINEAR_TEAM_KEY
   project_slug: my-project
+workspace:
+  defaultBranch: main
 ---
 
 You are a coding agent working on issue {{ issue.identifier }}: {{ issue.title }}.
@@ -76,18 +78,19 @@ export LINEAR_TEAM_KEY=your-linear-team-key
 
 For Jira, use `tracker.kind: jira` with the Jira-specific fields and set `JIRA_EMAIL` / `JIRA_API_TOKEN` as needed.
 
-For a repository-backed workspace, configure `hooks.after_create` to attach a git worktree from the repo that owns `WORKFLOW.md`:
+For a repository-backed workspace, configure `workspace.defaultBranch`. Symphony will create a git worktree from `origin/<defaultBranch>` automatically and check out a generated branch named `symphony-pi/<nanoid7>`.
+
+Use `hooks.after_create` only for post-create setup inside the prepared worktree, for example:
 
 ```yaml
+workspace:
+  root: /tmp/symphony_workspaces
+  defaultBranch: main
+
 hooks:
   after_create: |
     set -eu
-
-    repo_root="$SYMPHONY_WORKFLOW_DIR"
-    branch_name="feature/$(printf '%s' "$SYMPHONY_WORKSPACE_KEY" | tr '[:upper:]' '[:lower:]')"
-
-    git -C "$repo_root" fetch origin main
-    git -C "$repo_root" worktree add -B "$branch_name" "$SYMPHONY_WORKSPACE_PATH" origin/main
+    pnpm install
 ```
 
 Hook processes run with these helper environment variables:

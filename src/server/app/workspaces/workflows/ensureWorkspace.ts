@@ -1,6 +1,6 @@
 /** Side-effectful workspace creation, cleanup, and lifecycle-hook workflows. */
 
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { basename } from 'node:path';
 
 import type { EffectiveConfig } from '../../config/model.ts';
@@ -12,6 +12,10 @@ import {
   buildWorkspacePath,
   isWorkspacePathContained,
 } from '../services/workspacePaths.ts';
+import {
+  createGitWorktree,
+  removeGitWorktree,
+} from '../services/gitWorktreeLifecycle.ts';
 
 export type WorkspaceResult =
   | { readonly type: 'created'; readonly workspace: Workspace }
@@ -25,6 +29,15 @@ export type HookResult =
   | { readonly type: 'success'; readonly stdout: string }
   | { readonly type: 'failure'; readonly error: string }
   | { readonly type: 'timeout'; readonly error: string };
+
+export type WorkspacePreparationResult =
+  | {
+      readonly type: 'success';
+      readonly repoRoot: string;
+      readonly branchName: string;
+      readonly attempts: number;
+    }
+  | { readonly type: 'failure'; readonly error: string };
 
 /**
  * Run a workspace hook script if configured.
@@ -71,6 +84,12 @@ const runHook = async (
       timeoutMs,
       buildHookEnv(workspacePath, config),
     );
+    if (result.timedOut) {
+      return {
+        type: 'timeout',
+        error: `${hookName} timed out after ${timeoutMs}ms: ${result.stderr}`,
+      };
+    }
     if (result.exitCode === 0) {
       return { type: 'success', stdout: result.stdout };
     }
@@ -134,6 +153,46 @@ export const runAfterCreateHook = async (
     config,
   );
   return result;
+};
+
+export const prepareWorkspace = async (
+  workspace: Workspace,
+  config: EffectiveConfig,
+): Promise<WorkspacePreparationResult> => {
+  if (!workspace.created_now) {
+    return {
+      type: 'success',
+      repoRoot: '',
+      branchName: '',
+      attempts: 0,
+    };
+  }
+
+  if (config.workflow === undefined) {
+    return { type: 'failure', error: 'workflow metadata is required for git worktree setup' };
+  }
+
+  const worktreeResult = await createGitWorktree({
+    workflowDir: config.workflow.dir,
+    workspacePath: workspace.path,
+    defaultBranch: config.workspace.defaultBranch,
+    timeoutMs: config.hooks.timeout_ms,
+  });
+  if (worktreeResult.type === 'error') {
+    return { type: 'failure', error: worktreeResult.error };
+  }
+
+  const hookResult = await runAfterCreateHook(workspace, config);
+  if (hookResult.type === 'failure' || hookResult.type === 'timeout') {
+    return { type: 'failure', error: `after_create hook: ${hookResult.error}` };
+  }
+
+  return {
+    type: 'success',
+    repoRoot: worktreeResult.repoRoot,
+    branchName: worktreeResult.branchName,
+    attempts: worktreeResult.attempts,
+  };
 };
 
 /**
@@ -201,12 +260,18 @@ export const removeWorkspace = async (
     return;
   }
 
-  // before_remove hook: failure logged, cleanup continues (SPEC 9.4)
   await runBeforeRemoveHook(workspacePath, config);
 
-  try {
-    rmSync(workspacePath, { recursive: true, force: true });
-  } catch {
-    // Best-effort cleanup
+  if (config.workflow === undefined) {
+    throw new Error('workflow metadata is required for git worktree removal');
+  }
+
+  const result = await removeGitWorktree({
+    workflowDir: config.workflow.dir,
+    workspacePath,
+    timeoutMs: config.hooks.timeout_ms,
+  });
+  if (result.type === 'error') {
+    throw new Error(result.error);
   }
 };

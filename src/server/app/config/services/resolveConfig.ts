@@ -61,6 +61,7 @@ export const resolveEffectiveConfig = (
 
   const workspaceRootStr =
     typeof workspaceSection['root'] === 'string' ? workspaceSection['root'] : undefined;
+  const workspaceDefaultBranch = ensureString(workspaceSection['defaultBranch']) ?? '';
 
   return {
     tracker: trackerConfig,
@@ -69,6 +70,7 @@ export const resolveEffectiveConfig = (
     },
     workspace: {
       root: resolveWorkspaceRoot(workspaceRootStr, workflowDir),
+      defaultBranch: workspaceDefaultBranch,
     },
     hooks: {
       after_create: ensureStringOrNull(hooksSection['after_create']),

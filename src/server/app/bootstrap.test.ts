@@ -42,7 +42,7 @@ const testConfig: EffectiveConfig = {
     transition_states: ['Todo', 'Done'],
   },
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/symphony' },
+  workspace: { root: '/tmp/symphony', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,

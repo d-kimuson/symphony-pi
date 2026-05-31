@@ -29,6 +29,8 @@ describe('loadConfig', () => {
       '  kind: linear',
       '  team_key: ENG',
       '  project_slug: test',
+      'workspace:',
+      '  defaultBranch: main',
       '---',
       '',
     ].join('\n');
@@ -46,6 +48,8 @@ describe('loadConfig', () => {
       '  api_key: test_key',
       '  team_key: ENG',
       '  project_slug: my-project',
+      'workspace:',
+      '  defaultBranch: main',
       '---',
       '# Task',
     ].join('\n');
@@ -71,8 +75,16 @@ describe('loadConfig', () => {
     }
   });
 
-  it('loads sparse tracker config without validation errors', () => {
-    const content = ['---', 'tracker:', '  kind: linear', '---', '# Task'].join('\n');
+  it('loads sparse tracker config when workspace.defaultBranch is provided', () => {
+    const content = [
+      '---',
+      'tracker:',
+      '  kind: linear',
+      'workspace:',
+      '  defaultBranch: main',
+      '---',
+      '# Task',
+    ].join('\n');
     const filePath = makeWorkflowFile(content);
 
     try {
@@ -84,6 +96,25 @@ describe('loadConfig', () => {
       expect(result.config.tracker.api_key).toBe(process.env['LINEAR_API_KEY'] ?? '');
       expect(result.config.tracker.team_key).toBe('');
       expect(result.config.tracker.project_slug).toBe('');
+      expect(result.config.workspace.defaultBranch).toBe('main');
+    } finally {
+      try {
+        unlinkSync(filePath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it('returns validation error when workspace.defaultBranch is missing', () => {
+    const content = ['---', 'tracker:', '  kind: linear', '---', '# Task'].join('\n');
+    const filePath = makeWorkflowFile(content);
+
+    try {
+      const result = loadConfig(filePath);
+      expect(result.type).toBe('error');
+      if (result.type === 'loaded') throw new Error('expected error');
+      expect(result.error).toContain('workspace.defaultBranch');
     } finally {
       try {
         unlinkSync(filePath);

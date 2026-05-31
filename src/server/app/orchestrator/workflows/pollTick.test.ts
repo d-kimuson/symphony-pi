@@ -14,7 +14,7 @@ vi.mock('../../issues/workflows/fetchIssues.js', () => ({
 
 vi.mock('../../workspaces/workflows/ensureWorkspace.js', () => ({
   ensureWorkspace: vi.fn(),
-  runAfterCreateHook: vi.fn(),
+  prepareWorkspace: vi.fn(),
   runBeforeRunHook: vi.fn(),
   runAfterRunHook: vi.fn(),
   removeWorkspace: vi.fn(),
@@ -25,6 +25,7 @@ vi.mock('../../workspaces/services/gitWorktree.js', () => ({
 }));
 
 vi.mock('../../workspaces/services/runState.js', () => ({
+  deleteWorkspaceRunState: vi.fn(),
   readWorkspaceRunState: vi.fn(),
   writeWorkspaceRunState: vi.fn(),
 }));
@@ -44,12 +45,13 @@ import { runAgentSession } from '../../agents/workflows/runAgentSession.ts';
 import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.ts';
 import { inspectGitWorktree } from '../../workspaces/services/gitWorktree.ts';
 import {
+  deleteWorkspaceRunState,
   readWorkspaceRunState,
   writeWorkspaceRunState,
 } from '../../workspaces/services/runState.ts';
 import {
   ensureWorkspace,
-  runAfterCreateHook,
+  prepareWorkspace,
   runBeforeRunHook,
   runAfterRunHook,
   removeWorkspace,
@@ -61,6 +63,7 @@ const mockEnsureWs = vi.mocked(ensureWorkspace);
 const mockRunAgentSession = vi.mocked(runAgentSession);
 const mockRenderPrompt = vi.mocked(renderPrompt);
 const mockInspectGitWorktree = vi.mocked(inspectGitWorktree);
+const mockDeleteWorkspaceRunState = vi.mocked(deleteWorkspaceRunState);
 const mockReadWorkspaceRunState = vi.mocked(readWorkspaceRunState);
 const mockWriteWorkspaceRunState = vi.mocked(writeWorkspaceRunState);
 
@@ -77,7 +80,7 @@ const makeConfig = (overrides?: Partial<EffectiveConfig>): EffectiveConfig => ({
     transition_states: ['Todo', 'In Progress', 'Done', 'Cancelled'],
   },
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/workspaces' },
+  workspace: { root: '/tmp/workspaces', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,
@@ -172,7 +175,12 @@ describe('pollTick', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(removeWorkspace).mockResolvedValue(undefined);
-    vi.mocked(runAfterCreateHook).mockResolvedValue({ type: 'success', stdout: '' });
+    vi.mocked(prepareWorkspace).mockResolvedValue({
+      type: 'success',
+      repoRoot: '/repo',
+      branchName: 'symphony-pi/abc1234',
+      attempts: 1,
+    });
     vi.mocked(runBeforeRunHook).mockResolvedValue({ type: 'success', stdout: '' });
     vi.mocked(runAfterRunHook).mockResolvedValue({ type: 'success', stdout: '' });
     mockInspectGitWorktree.mockResolvedValue({ type: 'clean' });
@@ -203,7 +211,6 @@ describe('pollTick', () => {
     });
     mockRenderPrompt.mockReturnValue({ type: 'rendered', content: 'Work on TEST-1' });
     mockRunAgentSession.mockResolvedValue({ status: 'completed', turns: 1, error: null });
-    vi.mocked(runAfterCreateHook).mockResolvedValue({ type: 'success', stdout: '' });
     vi.mocked(runBeforeRunHook).mockResolvedValue({ type: 'success', stdout: '' });
     vi.mocked(runAfterRunHook).mockResolvedValue({ type: 'success', stdout: '' });
 
@@ -213,6 +220,54 @@ describe('pollTick', () => {
     expect(state.running.has('issue-1')).toBe(true);
     expect(deps.notify).toHaveBeenCalled();
     await flushAsyncWork();
+  });
+
+  it('prepares a newly created workspace before running the agent', async () => {
+    const state = makeState();
+    const config = makeConfig();
+    const deps = makeDeps();
+    const issue = makeIssue();
+    mockFetchIssues.mockResolvedValue([issue]);
+    mockFetchStates.mockResolvedValue([]);
+    mockEnsureWs.mockReturnValue({
+      type: 'created',
+      workspace: { path: '/tmp/ws/TEST-1', workspace_key: 'TEST-1', created_now: true },
+    });
+    mockRenderPrompt.mockReturnValue({ type: 'rendered', content: 'Work on TEST-1' });
+    mockRunAgentSession.mockResolvedValue({ status: 'completed', turns: 1, error: null });
+
+    await pollTick(state, config, deps);
+    await flushAsyncWork();
+
+    expect(prepareWorkspace).toHaveBeenCalledWith(
+      { path: '/tmp/ws/TEST-1', workspace_key: 'TEST-1', created_now: true },
+      config,
+    );
+  });
+
+  it('stops before agent execution when workspace preparation fails', async () => {
+    const state = makeState();
+    const config = makeConfig();
+    const deps = makeDeps();
+    const issue = makeIssue();
+    mockFetchIssues.mockResolvedValue([issue]);
+    mockFetchStates.mockResolvedValue([]);
+    mockEnsureWs.mockReturnValue({
+      type: 'created',
+      workspace: { path: '/tmp/ws/TEST-1', workspace_key: 'TEST-1', created_now: true },
+    });
+    vi.mocked(prepareWorkspace).mockResolvedValueOnce({
+      type: 'failure',
+      error: 'git failed',
+    });
+
+    await pollTick(state, config, deps);
+    await flushAsyncWork();
+
+    expect(runBeforeRunHook).not.toHaveBeenCalled();
+    expect(mockRunAgentSession).not.toHaveBeenCalled();
+    expect(removeWorkspace).toHaveBeenCalledWith('/tmp/ws/TEST-1', config);
+    expect(mockDeleteWorkspaceRunState).toHaveBeenCalledWith('/tmp/ws/TEST-1');
   });
 
   it('skips dispatch when issue is retry queued', async () => {

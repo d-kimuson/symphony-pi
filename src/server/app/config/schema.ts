@@ -47,7 +47,10 @@ const githubTrackerSchema = v.object({
 const configSchema = v.object({
   tracker: v.union([linearTrackerSchema, jiraTrackerSchema, githubTrackerSchema]),
   polling: v.object({ interval_ms: v.pipe(v.number(), v.integer(), v.minValue(1000)) }),
-  workspace: v.object({ root: v.pipe(v.string(), v.nonEmpty()) }),
+  workspace: v.object({
+    root: v.pipe(v.string(), v.nonEmpty()),
+    defaultBranch: v.pipe(v.string(), v.nonEmpty()),
+  }),
   hooks: v.object({
     after_create: v.nullable(v.string()),
     before_run: v.nullable(v.string()),

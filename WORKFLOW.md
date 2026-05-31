@@ -20,16 +20,10 @@ polling:
 
 workspace:
   root: /tmp/symphony_workspaces
+  defaultBranch: main
 
 hooks:
-  after_create: |
-    set -eu
-
-    repo_root="$SYMPHONY_WORKFLOW_DIR"
-    branch_name="feature/$(printf '%s' "$SYMPHONY_WORKSPACE_KEY" | tr '[:upper:]' '[:lower:]')"
-
-    git -C "$repo_root" fetch origin main
-    git -C "$repo_root" worktree add -B "$branch_name" "$SYMPHONY_WORKSPACE_PATH" origin/main
+  after_create: null
   before_run: null
   after_run: null
   before_remove: null
@@ -93,7 +87,7 @@ You are a coding agent working on issue **{{ issue.identifier }}**: {{ issue.tit
 ## Guidelines
 
 - Work in the workspace directory
-- This workspace is a git worktree prepared from `origin/main`; stay on the prepared branch in this workspace
+- This workspace is a git worktree prepared from the configured `workspace.defaultBranch`; stay on the prepared branch in this workspace
 - Write tests for your changes
 - Keep commits small and focused
 - Do not call `set-ralph-loop` more than once

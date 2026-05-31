@@ -425,6 +425,10 @@ Fields:
   - `~` is expanded.
   - Relative paths are resolved relative to the directory containing `WORKFLOW.md`.
   - The effective workspace root is normalized to an absolute path before use.
+- `defaultBranch` (string)
+  - REQUIRED.
+  - Names the remote default branch used for built-in git worktree creation.
+  - New workspaces are created from `origin/<defaultBranch>`.
 
 #### 5.3.4 `hooks` (object)
 
@@ -646,6 +650,7 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `tracker.close_on_terminal`: boolean, default `false`, optional when `tracker.kind=github`
 - `polling.interval_ms`: integer, default `30000`
 - `workspace.root`: path resolved to absolute, default `<system-temp>/symphony_workspaces`
+- `workspace.defaultBranch`: REQUIRED string naming the built-in git worktree base branch
 - `hooks.after_create`: shell script or null
 - `hooks.before_run`: shell script or null
 - `hooks.after_run`: shell script or null
@@ -906,24 +911,34 @@ Algorithm summary:
 3. Ensure the workspace path exists as a directory.
 4. Mark `created_now=true` only if the directory was created during this call; otherwise
    `created_now=false`.
-5. If `created_now=true`, run `after_create` hook if configured.
+5. If `created_now=true`, resolve the repository root from the directory containing `WORKFLOW.md`.
+6. Fetch `origin/<workspace.defaultBranch>` and create a git worktree at the workspace path.
+7. Create a generated branch named `symphony-pi/<nanoid7>` from `origin/<workspace.defaultBranch>`.
+8. If branch-name generation collides, generate a new NanoID and retry within a bounded retry budget.
+9. If built-in worktree setup succeeds, run `after_create` hook if configured.
 
 Notes:
 
-- This section does not assume any specific repository/VCS workflow.
-- Workspace preparation beyond directory creation (for example dependency bootstrap, checkout/sync,
-  code generation) is implementation-defined and is typically handled via hooks.
+- New workspace paths remain deterministic per issue identifier.
+- New workspace branch names are intentionally non-deterministic.
+- Reused workspaces keep their existing worktree/branch state.
 
-### 9.3 Workspace Population via Hooks
+### 9.3 Built-in Git Worktree Preparation
 
-The service does not implement built-in VCS or repository bootstrap behavior. Workspace population
-and synchronization are performed by configured hooks such as `after_create` and `before_run`.
+The service implements built-in git worktree bootstrap for newly created workspaces.
+
+Behavior:
+
+- Resolve the actual git repository root via `git rev-parse --show-toplevel` from the workflow directory.
+- Use `workspace.defaultBranch` as the required source branch.
+- Fetch and verify `origin/<workspace.defaultBranch>` before creating the worktree.
+- Create the workspace as a git worktree on a generated branch `symphony-pi/<nanoid7>`.
+- Run `after_create` only after built-in worktree setup succeeds.
 
 Failure handling:
 
-- Workspace population/synchronization failures return an error for the current attempt.
-- If failure happens while creating a brand-new workspace, the implementation leaves the partially
-  prepared directory in place for debugging.
+- Workspace preparation failures return an error for the current attempt.
+- If failure happens while creating a brand-new workspace, the implementation SHOULD clean up partial worktree state as far as safely possible.
 - Reused workspaces MUST NOT be destructively reset on population failure.
 
 ### 9.4 Workspace Hooks
@@ -951,7 +966,8 @@ Execution contract:
 
 Failure semantics:
 
-- `after_create` failure or timeout is fatal to workspace creation.
+- Built-in git worktree setup failure is fatal to workspace creation.
+- `after_create` failure or timeout is fatal after built-in worktree setup succeeds.
 - `before_run` failure or timeout is fatal to the current run attempt.
 - `after_run` failure or timeout is logged and ignored.
 - `before_remove` failure or timeout is logged and ignored.
@@ -2011,7 +2027,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`.
 - Existing non-directory path at workspace location is handled safely (replace or fail per
   implementation policy)
 - Workspace population/synchronization errors from hooks are surfaced
-- `after_create` hook runs only on new workspace creation
+- `after_create` hook runs only on new workspace creation after built-in git worktree setup
 - `before_run` hook runs before each attempt and failure/timeouts abort the current attempt
 - `after_run` hook runs after each attempt and failure/timeouts are logged and ignored
 - `before_remove` hook runs on cleanup and failures/timeouts are ignored

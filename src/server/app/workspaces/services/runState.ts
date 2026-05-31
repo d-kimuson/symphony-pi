@@ -1,6 +1,6 @@
 /** Persisted per-workspace orchestration state for restart-safe resume. */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import * as v from 'valibot';
 
@@ -79,4 +79,14 @@ export const writeWorkspaceRunState = (
     updated_at: new Date().toISOString(),
   };
   writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+};
+
+export const deleteWorkspaceRunState = (workspacePath: string): void => {
+  const gitSidecarDir = getGitSidecarDir(workspacePath);
+  if (gitSidecarDir === null) {
+    rmSync(join(workspacePath, sidecarDirName), { recursive: true, force: true });
+    return;
+  }
+
+  rmSync(join(gitSidecarDir, runStateFileName), { force: true });
 };

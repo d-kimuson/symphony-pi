@@ -91,7 +91,7 @@ describe('EffectiveConfig', () => {
       transition_states: ['Todo', 'Done'],
     },
     polling: { interval_ms: 30000 },
-    workspace: { root: '/tmp/workspaces' },
+    workspace: { root: '/tmp/workspaces', defaultBranch: 'main' },
     hooks: {
       after_create: null,
       before_run: null,
@@ -123,6 +123,7 @@ describe('EffectiveConfig', () => {
     expect(cfg.tracker.kind).toBe('linear');
     expect(cfg.polling.interval_ms).toBe(30000);
     expect(cfg.workspace.root).toBe('/tmp/workspaces');
+    expect(cfg.workspace.defaultBranch).toBe('main');
     expect(cfg.agent.max_concurrent_agents).toBe(10);
     expect(cfg.pi.tools).toEqual(['read', 'bash', 'edit', 'write']);
     expect(cfg.server.port).toBe(48484);

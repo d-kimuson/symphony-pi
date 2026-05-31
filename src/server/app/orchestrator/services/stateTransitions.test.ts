@@ -29,7 +29,7 @@ const trackerConfig: LinearTrackerConfig = {
 const baseConfig: EffectiveConfig = {
   tracker: trackerConfig,
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/ws' },
+  workspace: { root: '/tmp/ws', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,

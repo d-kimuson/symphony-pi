@@ -4,6 +4,7 @@ import type { EffectiveConfig } from '../../config/model.ts';
 
 import {
   ensureWorkspace,
+  prepareWorkspace,
   runAfterCreateHook,
   runBeforeRunHook,
   runAfterRunHook,
@@ -15,18 +16,25 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   mkdirSync: vi.fn(),
   readdirSync: vi.fn(),
-  rmSync: vi.fn(),
 }));
 
 vi.mock('../../../lib/process/index.js', () => ({
   execShellScript: vi.fn(),
 }));
 
-import { rmSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+vi.mock('../services/gitWorktreeLifecycle.js', () => ({
+  createGitWorktree: vi.fn(),
+  removeGitWorktree: vi.fn(),
+}));
+
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 
 import { execShellScript } from '../../../lib/process/index.ts';
+import { createGitWorktree, removeGitWorktree } from '../services/gitWorktreeLifecycle.ts';
 
-const mockExec = execShellScript as ReturnType<typeof vi.fn>;
+const mockExec = vi.mocked(execShellScript);
+const mockCreateGitWorktree = vi.mocked(createGitWorktree);
+const mockRemoveGitWorktree = vi.mocked(removeGitWorktree);
 
 const baseConfig: EffectiveConfig = {
   tracker: {
@@ -41,7 +49,7 @@ const baseConfig: EffectiveConfig = {
     transition_states: ['Todo', 'Done'],
   },
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/workspaces' },
+  workspace: { root: '/tmp/workspaces', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,
@@ -64,6 +72,10 @@ const baseConfig: EffectiveConfig = {
     stall_timeout_ms: 300000,
   },
   server: { port: 48484, host: '127.0.0.1' },
+  workflow: {
+    path: '/repo/WORKFLOW.md',
+    dir: '/repo',
+  },
   prompt_template: null,
 };
 
@@ -155,6 +167,13 @@ describe('ensureWorkspace', () => {
 describe('workspace hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCreateGitWorktree.mockResolvedValue({
+      type: 'success',
+      repoRoot: '/repo',
+      branchName: 'symphony-pi/abc1234',
+      attempts: 1,
+    });
+    mockRemoveGitWorktree.mockResolvedValue({ type: 'success', repoRoot: '/repo' });
   });
 
   it('runAfterCreateHook: returns success when no hook configured', async () => {
@@ -167,7 +186,7 @@ describe('workspace hooks', () => {
   });
 
   it('runAfterCreateHook: passes workflow and workspace context to the hook environment', async () => {
-    mockExec.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+    mockExec.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
     const config: EffectiveConfig = {
       ...baseConfig,
       workflow: {
@@ -193,7 +212,7 @@ describe('workspace hooks', () => {
   });
 
   it('runAfterCreateHook: returns failure when hook fails', async () => {
-    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
+    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1, timedOut: false });
     const config = { ...baseConfig, hooks: { ...baseConfig.hooks, after_create: 'echo test' } };
     const result = await runAfterCreateHook(
       { path: '/ws', workspace_key: 'TEST-1', created_now: true },
@@ -202,15 +221,85 @@ describe('workspace hooks', () => {
     expect(result.type).toBe('failure');
   });
 
+  it('prepareWorkspace: creates a git worktree before running after_create', async () => {
+    mockExec.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
+    const config = {
+      ...baseConfig,
+      hooks: { ...baseConfig.hooks, after_create: 'echo test' },
+    };
+
+    const result = await prepareWorkspace(
+      { path: '/ws/TEST-1', workspace_key: 'TEST-1', created_now: true },
+      config,
+    );
+
+    expect(result).toEqual({
+      type: 'success',
+      repoRoot: '/repo',
+      branchName: 'symphony-pi/abc1234',
+      attempts: 1,
+    });
+    expect(mockCreateGitWorktree).toHaveBeenCalledWith({
+      workflowDir: '/repo',
+      workspacePath: '/ws/TEST-1',
+      defaultBranch: 'main',
+      timeoutMs: 60000,
+    });
+    expect(mockExec).toHaveBeenCalledWith('echo test', '/ws/TEST-1', 60000, {
+      ...process.env,
+      SYMPHONY_WORKFLOW_DIR: '/repo',
+      SYMPHONY_WORKFLOW_PATH: '/repo/WORKFLOW.md',
+      SYMPHONY_WORKSPACE_KEY: 'TEST-1',
+      SYMPHONY_WORKSPACE_PATH: '/ws/TEST-1',
+    });
+  });
+
+  it('prepareWorkspace: returns failure when workflow metadata is missing', async () => {
+    const config: EffectiveConfig = {
+      ...baseConfig,
+      workflow: undefined,
+    };
+
+    const result = await prepareWorkspace(
+      { path: '/ws/TEST-1', workspace_key: 'TEST-1', created_now: true },
+      config,
+    );
+
+    expect(result).toEqual({
+      type: 'failure',
+      error: 'workflow metadata is required for git worktree setup',
+    });
+    expect(mockCreateGitWorktree).not.toHaveBeenCalled();
+  });
+
+  it('prepareWorkspace: returns failure when git worktree creation fails', async () => {
+    mockCreateGitWorktree.mockResolvedValueOnce({ type: 'error', error: 'git failed' });
+
+    const result = await prepareWorkspace(
+      { path: '/ws/TEST-1', workspace_key: 'TEST-1', created_now: true },
+      baseConfig,
+    );
+
+    expect(result).toEqual({ type: 'failure', error: 'git failed' });
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
   it('runBeforeRunHook: returns failure when hook fails', async () => {
-    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
+    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1, timedOut: false });
     const config = { ...baseConfig, hooks: { ...baseConfig.hooks, before_run: 'exit 1' } };
     const result = await runBeforeRunHook('/ws', config);
     expect(result.type).toBe('failure');
   });
 
+  it('runBeforeRunHook: returns timeout when hook execution times out', async () => {
+    mockExec.mockResolvedValue({ stdout: '', stderr: 'timed out', exitCode: 124, timedOut: true });
+    const config = { ...baseConfig, hooks: { ...baseConfig.hooks, before_run: 'sleep 999' } };
+    const result = await runBeforeRunHook('/ws', config);
+    expect(result.type).toBe('timeout');
+  });
+
   it('runAfterRunHook: failure is returned but should be ignored by caller (SPEC 9.4)', async () => {
-    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
+    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1, timedOut: false });
     const config = { ...baseConfig, hooks: { ...baseConfig.hooks, after_run: 'echo after' } };
     const result = await runAfterRunHook('/ws', config);
     // Hook returns the result; caller decides to ignore
@@ -218,7 +307,7 @@ describe('workspace hooks', () => {
   });
 
   it('runBeforeRemoveHook: failure is returned but cleanup should proceed (SPEC 9.4)', async () => {
-    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
+    mockExec.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1, timedOut: false });
     const config = { ...baseConfig, hooks: { ...baseConfig.hooks, before_remove: 'echo before' } };
     const result = await runBeforeRemoveHook('/ws', config);
     expect(result.type).toBe('failure');
@@ -228,21 +317,33 @@ describe('workspace hooks', () => {
 describe('removeWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRemoveGitWorktree.mockResolvedValue({ type: 'success', repoRoot: '/repo' });
   });
 
   it('no-op when path does not exist', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
     await removeWorkspace('/ws', baseConfig);
-    expect(rmSync).not.toHaveBeenCalled();
+    expect(mockRemoveGitWorktree).not.toHaveBeenCalled();
   });
 
-  it('runs before_remove hook and removes directory', async () => {
+  it('runs before_remove hook and removes git worktree', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    mockExec.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
-    vi.mocked(rmSync).mockReturnValue(undefined);
+    mockExec.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
 
     await removeWorkspace('/ws', baseConfig);
 
-    expect(rmSync).toHaveBeenCalledWith('/ws', { recursive: true, force: true });
+    expect(mockRemoveGitWorktree).toHaveBeenCalledWith({
+      workflowDir: '/repo',
+      workspacePath: '/ws',
+      timeoutMs: 60000,
+    });
+  });
+
+  it('throws when workflow metadata is missing', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+
+    await expect(removeWorkspace('/ws', { ...baseConfig, workflow: undefined })).rejects.toThrow(
+      'workflow metadata is required for git worktree removal',
+    );
   });
 });

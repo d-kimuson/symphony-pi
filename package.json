@@ -45,7 +45,9 @@
     "smoke:pack": "run-s build smoke:pack:check",
     "smoke:pack:check": "node src/scripts/smoke-packed-package.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "nanoid": "5.1.11"
+  },
   "devDependencies": {
     "@base-ui/react": "1.4.1",
     "@earendil-works/pi-coding-agent": "0.75.4",

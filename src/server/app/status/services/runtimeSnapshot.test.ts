@@ -42,7 +42,7 @@ const makeProject = (projectId: string, state: OrchestratorState): ProjectRuntim
       transition_states: ['Todo', 'Done'],
     },
     polling: { interval_ms: state.poll_interval_ms },
-    workspace: { root: '/tmp/workspaces' },
+    workspace: { root: '/tmp/workspaces', defaultBranch: 'main' },
     hooks: {
       after_create: null,
       before_run: null,

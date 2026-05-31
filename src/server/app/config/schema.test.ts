@@ -19,7 +19,7 @@ const linearTracker: LinearTrackerConfig = {
 const baseConfig: EffectiveConfig = {
   tracker: linearTracker,
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/ws' },
+  workspace: { root: '/tmp/ws', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,
@@ -206,6 +206,14 @@ describe('validateConfig', () => {
       hooks: { ...baseConfig.hooks, timeout_ms: 0 },
     };
     expect(validateConfig(config)).toContain('hooks.timeout_ms must be positive');
+  });
+
+  it('reports missing workspace.defaultBranch', () => {
+    const config: EffectiveConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, defaultBranch: '' },
+    };
+    expect(validateConfig(config).join('\n')).toContain('workspace.defaultBranch');
   });
 
   it('reports invalid port', () => {

@@ -17,7 +17,7 @@ const linearConfig: EffectiveConfig = {
     transition_states: ['Todo', 'In Progress', 'Human Review', 'Done', 'Cancelled'],
   },
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/symphony' },
+  workspace: { root: '/tmp/symphony', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,
@@ -57,7 +57,7 @@ const jiraConfig: EffectiveConfig = {
     transition_states: ['Todo', 'In Progress', 'Done'],
   },
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/symphony' },
+  workspace: { root: '/tmp/symphony', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,
@@ -98,7 +98,7 @@ const githubConfig: EffectiveConfig = {
     transition_states: ['agent-ready', 'in-progress', 'human-review', 'done', 'closed'],
   },
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/symphony' },
+  workspace: { root: '/tmp/symphony', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,

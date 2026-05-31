@@ -35,7 +35,7 @@ const runtimeConfig: EffectiveConfig = {
     transition_states: ['Todo', 'Done'],
   },
   polling: { interval_ms: 30000 },
-  workspace: { root: '/tmp/workspaces' },
+  workspace: { root: '/tmp/workspaces', defaultBranch: 'main' },
   hooks: {
     after_create: null,
     before_run: null,

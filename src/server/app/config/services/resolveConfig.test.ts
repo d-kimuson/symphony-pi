@@ -16,6 +16,9 @@ describe('resolveEffectiveConfig', () => {
       polling: {
         interval_ms: 60000,
       },
+      workspace: {
+        defaultBranch: 'main',
+      },
     },
     prompt_template: '# Task',
   };
@@ -29,6 +32,7 @@ describe('resolveEffectiveConfig', () => {
     expect(config.tracker.project_slug).toBe('my-project');
     expect(config.polling.interval_ms).toBe(60000);
     expect(config.agent.max_concurrent_agents).toBe(10);
+    expect(config.workspace.defaultBranch).toBe('main');
     expect(config.pi.tools).toEqual([]);
     expect(config.server.port).toBe(48484);
   });
@@ -146,6 +150,7 @@ describe('resolveEffectiveConfig', () => {
     const workflow: WorkflowDefinition = {
       config: {
         tracker: { kind: 'linear', api_key: 'key', team_key: 'ENG', project_slug: 'proj' },
+        workspace: { defaultBranch: 'main' },
       },
       prompt_template: '# Task',
     };
@@ -161,6 +166,7 @@ describe('resolveEffectiveConfig', () => {
     const workflow: WorkflowDefinition = {
       config: {
         tracker: { kind: 'linear', api_key: 'key', team_key: 'ENG', project_slug: 'proj' },
+        workspace: { defaultBranch: 'main' },
       },
       prompt_template: '# Task',
     };
@@ -169,5 +175,17 @@ describe('resolveEffectiveConfig', () => {
     if (config.tracker.kind !== 'linear') throw new Error('expected linear');
     expect(config.tracker.transition_states).toContain('Todo');
     expect(config.tracker.transition_states).toContain('Done');
+  });
+
+  it('uses empty string when workspace.defaultBranch is missing so validation can fail later', () => {
+    const workflow: WorkflowDefinition = {
+      config: {
+        tracker: { kind: 'linear', api_key: 'key', team_key: 'ENG', project_slug: 'proj' },
+      },
+      prompt_template: '# Task',
+    };
+
+    const config = resolveEffectiveConfig(workflow, '/repo');
+    expect(config.workspace.defaultBranch).toBe('');
   });
 });

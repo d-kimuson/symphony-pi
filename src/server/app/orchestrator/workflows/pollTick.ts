@@ -18,12 +18,13 @@ import {
 import { fetchIssues, fetchIssueStatesByIds } from '../../issues/workflows/fetchIssues.ts';
 import { inspectGitWorktree } from '../../workspaces/services/gitWorktree.ts';
 import {
+  deleteWorkspaceRunState,
   readWorkspaceRunState,
   writeWorkspaceRunState,
 } from '../../workspaces/services/runState.ts';
 import {
   ensureWorkspace,
-  runAfterCreateHook,
+  prepareWorkspace,
   runBeforeRunHook,
   runAfterRunHook,
   removeWorkspace,
@@ -302,9 +303,8 @@ const dispatchIssue = (
     state,
     entry,
     issue,
-    workspace.path,
+    workspace,
     config,
-    wsResult.type === 'created',
     abortController.signal,
     deps,
     resumeReason,
@@ -320,9 +320,8 @@ const runDispatchWorker = async (
   state: OrchestratorState,
   entry: RunningEntry,
   issue: Issue,
-  workspacePath: string,
+  workspace: { readonly path: string; readonly workspace_key: string; readonly created_now: boolean },
   config: EffectiveConfig,
-  isNewWorkspace: boolean,
   signal: AbortSignal,
   deps: PollTickDeps,
   resumeReason: DispatchOptions['resumeReason'],
@@ -340,25 +339,31 @@ const runDispatchWorker = async (
     return;
   }
 
+  const workspacePath = workspace.path;
+
   try {
-    if (isNewWorkspace && config.hooks.after_create !== null && config.hooks.after_create !== '') {
-      const result = await runAfterCreateHook(
-        { path: workspacePath, workspace_key: entry.issue_identifier, created_now: true },
-        config,
-      );
-      if (result.type === 'failure' || result.type === 'timeout') {
-        console.error(`${formatPrefix(deps.projectId)} after_create hook failed: ${result.error}`);
-        await removeWorkspace(workspacePath, config);
+    if (workspace.created_now) {
+      const result = await prepareWorkspace(workspace, config);
+      if (result.type === 'failure') {
+        console.error(
+          `${formatPrefix(deps.projectId)} workspace preparation failed: ${result.error}`,
+        );
+        await removeWorkspace(workspacePath, config).catch(() => undefined);
         handleWorkerExit(
           state,
           entry.issue_id,
           false,
-          `after_create hook: ${result.error}`,
+          `workspace preparation: ${result.error}`,
           config,
           deps.projectId,
         );
+        deleteWorkspaceRunState(workspacePath);
         return;
       }
+
+      console.log(
+        `${formatPrefix(deps.projectId)} Prepared git worktree for ${entry.issue_identifier}: repo=${result.repoRoot} branch=${result.branchName} attempts=${result.attempts}`,
+      );
     }
 
     const beforeResult = await runBeforeRunHook(workspacePath, config);

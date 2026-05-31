@@ -50,6 +50,7 @@ export type EffectiveConfig = {
   };
   readonly workspace: {
     readonly root: string;
+    readonly defaultBranch: string;
   };
   readonly hooks: {
     readonly after_create: string | null;

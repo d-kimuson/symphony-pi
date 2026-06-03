@@ -151,3 +151,17 @@ false
 
 # docs
 docs/tmp
+
+# srt
+.bash_profile
+.bashrc
+.claude/agents
+.claude/commands
+.gitconfig
+.gitmodules
+.idea
+.mcp.json
+.profile
+.ripgreprc
+.zprofile
+.zshrc

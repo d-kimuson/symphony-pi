@@ -1,5 +1,5 @@
 {
-  "name": "symphony-pi",
+  "name": "@kimuson/symphony-pi",
   "version": "0.0.0",
   "description": "A long-running automation service that polls issue trackers and runs pi-coding-agent sessions",
   "homepage": "https://github.com/d-kimuson/symphony-pi#readme",

@@ -48,6 +48,6 @@ jobs:
         uses: ./.github/actions/setup-node
 
       - name: Generate draft release notes
-        run: pnpm exec changelogithub --draft
+        run: pnpm dlx changelogithub@14.0.0 --draft
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

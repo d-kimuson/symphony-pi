@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      nanoid:
-        specifier: 5.1.11
-        version: 5.1.11
     devDependencies:
       '@base-ui/react':
         specifier: 1.4.1
@@ -111,6 +107,9 @@ importers:
       lucide-react:
         specifier: 1.16.0
         version: 1.16.0(react@19.2.6)
+      nanoid:
+        specifier: 5.1.11
+        version: 5.1.11
       npm-run-all2:
         specifier: 8.0.4
         version: 8.0.4
